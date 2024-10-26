@@ -1,3 +1,4 @@
 ccryptolib
 file_helper.lua
 !etc
+.credential_store

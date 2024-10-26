@@ -39,6 +39,7 @@ local error_mt = {
 ---| '"InternalError"' # An error caused by the challenge runner itself.
 ---| '"ChallengeError"' # An error caused by the challenge itself.
 ---| '"NetworkError"' # An error caused by a network issue.
+---| '"AuthenticationError"' # An error caused by authentication issues.
 
 ---@class UserError : CustomError
 ---@field type '"UserError"'
@@ -97,6 +98,17 @@ function errors.NetworkError(message, details)
     message = message,
     details = details,
     type = "NetworkError"
+  }, error_mt)
+end
+
+---@class AuthenticationError : CustomError
+---@field type '"AuthenticationError"'
+
+---@param message string The error message.
+function errors.AuthenticationError(message)
+  return setmetatable({
+    message = message,
+    type = "AuthenticationError"
   }, error_mt)
 end
 

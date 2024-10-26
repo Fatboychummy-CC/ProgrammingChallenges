@@ -21,6 +21,7 @@ local errors = require "errors"
 
 local CHALLENGES_ROOT = "challenges"
 local SITES_ROOT = "challenge_sites"
+local CREDENTIAL_STORE_ROOT = ".credential_store"
 
 ---@type table<string, ChallengeSite>
 local sites = {}
@@ -306,8 +307,40 @@ local function cred_store(site, ...)
       "Provide a subcommand."
     ))
   end
-
   sub_command = sub_command:lower()
+
+  if site == "cred-store" then -- Global cred-store commands
+    local credential_store = file_helper:instanced(CREDENTIAL_STORE_ROOT)
+    if sub_command == "disable" then
+      term.setTextColor(colors.orange)
+      print("Warning: Disabling the credential store will remove all stored credentials.")
+      term.setTextColor(colors.red)
+      write("Are you sure you want to disable the credential store? (y/n): ")
+      term.setTextColor(colors.white)
+      local _, key
+      repeat
+        _, key = os.pullEvent("key")
+      until key == keys.y or key == keys.n
+      os.pullEvent("char") -- consume the char event this is also generated.
+      print(key == keys.y and "Yes" or "No")
+
+      for _, file in ipairs(credential_store:list()) do
+        credential_store:delete(file)
+      end
+      credential_store:empty(".disabled")
+
+      print("All credentials removed, credential store disabled.")
+    elseif sub_command == "enable" then
+      credential_store:delete(".disabled")
+      print("Credential store enabled.")
+    else
+      error(errors.UserError(
+        ("Unknown subcommand '%s'"):format(sub_command),
+        "Provide a valid subcommand."
+      ))
+    end
+    return
+  end
 
   if sub_command == "remove" then
     remove_credentials(site)
@@ -482,10 +515,18 @@ process_command = function(args)
 
   local command = table.remove(args, 1):lower()
 
-  if command == "list" then
+  if command == "test" then
+    local ok, user, pass = require "authentication_utils".get_user_pass("test")
+    term.setTextColor(colors.orange)
+    print("username:", user)
+    print("password:", pass)
+    term.setTextColor(colors.white)
+  elseif command == "list" then
     list_sites()
   elseif command == "help" then
     display_help(table.unpack(args))
+  elseif command == "cred-store" then
+    cred_store(command, table.unpack(args))
   elseif command == "interactive" then
     interactive(table.unpack(args))
   else
@@ -508,8 +549,6 @@ process_command = function(args)
       submit(site, table.unpack(args))
     elseif sub_command == "help" then
       display_help(command, true)
-    elseif sub_command == "cred-store" then
-      cred_store(command, table.unpack(args))
     else
       printError(errors.UserError(
         ("Unknown command '%s'"):format(sub_command),
