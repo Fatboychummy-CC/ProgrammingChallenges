@@ -33,87 +33,6 @@ local credential_store = file_helper:instanced(".credential_store")
 ---@class authentication_utils
 local authentication_utils = {}
 
---- Check if the credential store is enabled or not.
----@return boolean enabled Whether the credential store is enabled.
-function authentication_utils.is_credential_store_enabled()
-  return not credential_store:exists(".disabled")
-end
-
-local function y_n()
-  term.setCursorBlink(true)
-  local _, key
-  repeat
-    _, key = os.pullEvent("key")
-  until key == keys.y or key == keys.n
-  os.pullEvent("char") -- consume the char event this also generates.
-  term.setCursorBlink(false)
-  print()
-
-  return key == keys.y
-end
-
---- Enable the credential store.
----@return boolean ok Whether the operation was successful (User must confirm).
-function authentication_utils.enable_credential_store()
-  -- If the store is already enabled, return true.
-  if authentication_utils.is_credential_store_enabled() then
-    return true
-  end
-
-  term.blit(
-             "Are you sure you want to enable the credential store (y/n)? ",
-        "000000000000000000000000044444400000000000000000000000000000",
-  "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-  )
-
-  -- If the user doesn't confirm, cancel the operation.
-  if not y_n() then
-    return false
-  end
-
-  -- The user has confirmed, delete the disabled file.
-  credential_store:delete(".disabled")
-
-  return true
-end
-
---- Disable the credential store.
----@return boolean ok Whether the operation was successful (User must confirm).
-function authentication_utils.disable_credential_store()
-  -- If the store is already disabled, return true.
-  if not authentication_utils.is_credential_store_enabled() then
-    return true
-  end
-
-  term.blit(
-             "Warning: Disabling the credential store will remove all stored credentials.",
-        "111111110000000000000000000000000000000000000111111000000000000000000000000",
-  "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-  ) print()
-  term.setTextColor(colors.orange)
-  print("  This action is not reversible.")
-  term.setTextColor(colors.red)
-  write("Are you sure you want to disable the credential store? (y/n)? ")
-  term.setTextColor(colors.white)
-
-  -- If the user doesn't confirm, cancel the operation.
-  if not y_n() then
-    return false
-  end
-
-  -- Delete all the other files in the store.
-  for _, file in ipairs(credential_store:list()) do
-    credential_store:delete(file)
-  end
-
-  -- Create the empty file to indicate that the store is disabled.
-  credential_store:empty(".disabled")
-
-  print("All stored credentials have been removed, and the credential store has been disabled.")
-
-  return true
-end
-
 --- Display a percentage based on progress.
 ---@param y number The y position to display the progress at. Starts at x=1.
 ---@param stage number The current stage of the progress. Use this if you want to merge multiple actions into one percentage.
@@ -144,6 +63,21 @@ local function progress(y, stage, stage_max)
   end
 end
 
+--- Wait until the user hits either y or n.
+---@return boolean hit_y Whether the user hit y.
+local function y_n()
+  term.setCursorBlink(true)
+  local _, key
+  repeat
+    _, key = os.pullEvent("key")
+  until key == keys.y or key == keys.n
+  os.pullEvent("char") -- consume the char event this also generates.
+  term.setCursorBlink(false)
+  print()
+
+  return key == keys.y
+end
+
 --- Read a verification passphrase for a site.
 ---@param site_name string The name of the site to get the passphrase for.
 ---@param pbkdf2_salt string The salt used for the verification hash.
@@ -172,6 +106,76 @@ local function read_expected_passphrase(site_name, pbkdf2_salt, pbkdf2_hash, sta
   sleep()
 
   return passphrase
+end
+
+--- Check if the credential store is enabled or not.
+---@return boolean enabled Whether the credential store is enabled.
+function authentication_utils.is_credential_store_enabled()
+  return not credential_store:exists(".disabled")
+end
+
+--- Enable the credential store.
+---@return boolean ok Whether the operation was successful (User must confirm).
+function authentication_utils.enable_credential_store()
+  -- If the store is already enabled, return true.
+  if authentication_utils.is_credential_store_enabled() then
+    print("The credential store is already enabled.")
+    return true
+  end
+
+  term.blit(
+             "Are you sure you want to enable the credential store (y/n)? ",
+        "000000000000000000000000044444400000000000000000000000000000",
+  "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  )
+
+  -- If the user doesn't confirm, cancel the operation.
+  if not y_n() then
+    return false
+  end
+
+  -- The user has confirmed, delete the disabled file.
+  credential_store:delete(".disabled")
+
+  return true
+end
+
+--- Disable the credential store.
+---@return boolean ok Whether the operation was successful (User must confirm).
+function authentication_utils.disable_credential_store()
+  -- If the store is already disabled, return true.
+  if not authentication_utils.is_credential_store_enabled() then
+    print("The credential store is already disabled.")
+    return true
+  end
+
+  term.blit(
+             "Warning: Disabling the credential store will remove all stored credentials.",
+        "111111110000000000000000000000000000000000000111111000000000000000000000000",
+  "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  ) print()
+  term.setTextColor(colors.orange)
+  print("  This action is not reversible.")
+  term.setTextColor(colors.red)
+  write("Are you sure you want to disable the credential store? (y/n)? ")
+  term.setTextColor(colors.white)
+
+  -- If the user doesn't confirm, cancel the operation.
+  if not y_n() then
+    return false
+  end
+
+  -- Delete all the other files in the store.
+  for _, file in ipairs(credential_store:list()) do
+    credential_store:delete(file)
+  end
+
+  -- Create the empty file to indicate that the store is disabled.
+  credential_store:empty(".disabled")
+
+  print("All stored credentials have been removed, and the credential store has been disabled.")
+
+  return true
 end
 
 --- Get a basic username/password combo for a site. This will either use the encrypted cache or prompt the user for the credentials.
