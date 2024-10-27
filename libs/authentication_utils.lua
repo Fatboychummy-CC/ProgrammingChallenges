@@ -47,6 +47,7 @@ local function y_n()
   until key == keys.y or key == keys.n
   os.pullEvent("char") -- consume the char event this also generates.
   term.setCursorBlink(false)
+  print()
 
   return key == keys.y
 end
@@ -100,13 +101,13 @@ function authentication_utils.disable_credential_store()
     return false
   end
 
-  -- Create the empty file to indicate that the store is disabled.
-  credential_store:empty(".disabled")
-
   -- Delete all the other files in the store.
   for _, file in ipairs(credential_store:list()) do
     credential_store:delete(file)
   end
+
+  -- Create the empty file to indicate that the store is disabled.
+  credential_store:empty(".disabled")
 
   print("All stored credentials have been removed, and the credential store has been disabled.")
 
