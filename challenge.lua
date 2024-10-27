@@ -18,10 +18,10 @@ package.path = package.path .. ";libs/?.lua;libs/?/init.lua"
 local file_helper = require "file_helper"
 local completion = require "cc.completion"
 local errors = require "errors"
+local authentication_utils = require "authentication_utils"
 
 local CHALLENGES_ROOT = "challenges"
 local SITES_ROOT = "challenge_sites"
-local CREDENTIAL_STORE_ROOT = ".credential_store"
 
 ---@type table<string, ChallengeSite>
 local sites = {}
@@ -310,29 +310,10 @@ local function cred_store(site, ...)
   sub_command = sub_command:lower()
 
   if site == "cred-store" then -- Global cred-store commands
-    local credential_store = file_helper:instanced(CREDENTIAL_STORE_ROOT)
     if sub_command == "disable" then
-      term.setTextColor(colors.orange)
-      print("Warning: Disabling the credential store will remove all stored credentials.")
-      term.setTextColor(colors.red)
-      write("Are you sure you want to disable the credential store? (y/n): ")
-      term.setTextColor(colors.white)
-      local _, key
-      repeat
-        _, key = os.pullEvent("key")
-      until key == keys.y or key == keys.n
-      os.pullEvent("char") -- consume the char event this is also generated.
-      print(key == keys.y and "Yes" or "No")
-
-      for _, file in ipairs(credential_store:list()) do
-        credential_store:delete(file)
-      end
-      credential_store:empty(".disabled")
-
-      print("All credentials removed, credential store disabled.")
+      authentication_utils.disable_credential_store()
     elseif sub_command == "enable" then
-      credential_store:delete(".disabled")
-      print("Credential store enabled.")
+      authentication_utils.enable_credential_store()
     else
       error(errors.UserError(
         ("Unknown subcommand '%s'"):format(sub_command),
@@ -516,11 +497,27 @@ process_command = function(args)
   local command = table.remove(args, 1):lower()
 
   if command == "test" then
-    local ok, user, pass = require "authentication_utils".get_user_pass("test")
-    term.setTextColor(colors.orange)
-    print("username:", user)
-    print("password:", pass)
-    term.setTextColor(colors.white)
+    local sub_command = table.remove(args, 1)
+
+    if sub_command == "token" then
+      local ok, token = authentication_utils.get_token("test")
+      term.setTextColor(colors.orange)
+      print("Success:", ok)
+      print("Token:", token)
+      term.setTextColor(colors.white)
+    elseif sub_command == "up" then
+      local ok, user, pass = authentication_utils.get_user_pass("test")
+      term.setTextColor(colors.orange)
+      print("Success:", ok)
+      print("User:", user)
+      print("Pass:", pass)
+      term.setTextColor(colors.white)
+    else
+      printError(errors.UserError(
+        ("Unknown test subcommand '%s'"):format(sub_command),
+        "Provide a valid subcommand."
+      ))
+    end
   elseif command == "list" then
     list_sites()
   elseif command == "help" then
