@@ -314,6 +314,8 @@ local function cred_store(site, ...)
       authentication_utils.disable_credential_store()
     elseif sub_command == "enable" then
       authentication_utils.enable_credential_store()
+    elseif sub_command == "list" then
+      authentication_utils.list_credentials()
     else
       error(errors.UserError(
         ("Unknown subcommand '%s'"):format(sub_command),
