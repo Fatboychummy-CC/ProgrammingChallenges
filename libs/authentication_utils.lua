@@ -1,5 +1,6 @@
 --- This library contains a bunch of utilities for authentication.
 
+local expect = require "cc.expect".expect
 local file_helper = require "file_helper"
 local chacha20 = require "ccryptolib.chacha20"
 local sha256 = require "ccryptolib.sha256"
@@ -19,6 +20,8 @@ local credential_store = file_helper:instanced(".credential_store")
 ---@field hash string The hash of the encryption key.
 ---@field salt_verification string The salt used for verification of the encryption key.
 ---@field salt_encryption string The salt used to generate the hash of the encryption key.
+---@field created integer The UTC timestamp of when the entry was created.
+---@field expiry integer? The UTC timestamp of when the entry will expire, if it will expire.
 
 ---@class UserPassCredentialEntry : CredentialEntry
 ---@field username string The username for the site, encrypted.
@@ -31,7 +34,13 @@ local credential_store = file_helper:instanced(".credential_store")
 ---@field nonce_token string The nonce used to encrypt the token.
 
 ---@class authentication_utils
-local authentication_utils = {}
+local authentication_utils = {
+  ---@enum CredentialType
+  ENTRY_TYPES = {
+    USER_PASS = "up",
+    TOKEN = "token"
+  }
+}
 
 --- Display a percentage based on progress.
 ---@param y number The y position to display the progress at. Starts at x=1.
@@ -108,6 +117,72 @@ local function read_expected_passphrase(site_name, pbkdf2_salt, pbkdf2_hash, sta
   return passphrase
 end
 
+--- Read an expiry date for a credential entry.
+---@return integer? expiry The expiry date in UTC milliseconds, if given.
+local function read_expiry_date()
+  print("Please enter the expiry date for this entry in the format 'YYYY-MM-DD HH:MM:SS' (UTC).")
+  print("Leave blank for no expiry.")
+  write("> ")
+
+  ---@type string|integer|nil
+  local expiry
+  repeat
+    if expiry then
+      printError("Invalid date format.")
+    end
+
+    expiry = read() --[[@as string]]
+    if expiry == "" then
+      return
+    end
+
+    local year, month, day, hour, minute, second = expiry:match("(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
+    if year then
+      expiry = os.time {
+        year = tonumber(year), ---@diagnostic disable-line:assign-type-mismatch
+        month = tonumber(month), ---@diagnostic disable-line:assign-type-mismatch
+        day = tonumber(day), ---@diagnostic disable-line:assign-type-mismatch
+        hour = tonumber(hour), ---@diagnostic disable-line:assign-type-mismatch
+        min = tonumber(minute), ---@diagnostic disable-line:assign-type-mismatch
+        sec = tonumber(second) ---@diagnostic disable-line:assign-type-mismatch We know these are numbers if they are valid values.
+      } * 1000
+    else
+      expiry = nil
+    end
+  until type(expiry) == "number"
+
+  return expiry
+end
+
+--- Test if an entry has expired, if it has, remove any nonce data and return true.
+---@param entry CredentialEntry The entry to test.
+---@return boolean expired Whether the entry has expired.
+local function test_expiry(entry)
+  local now = os.epoch "utc"
+
+  if entry.expiry and entry.expiry < now then
+    -- Username/Password nonces
+    entry.nonce_uname = nil ---@diagnostic disable-line:inject-field We are not injecting, we are removing.
+    entry.nonce_pass = nil  ---@diagnostic disable-line:inject-field We are not injecting, we are removing.
+
+    -- Token nonces
+    entry.nonce_token = nil ---@diagnostic disable-line:inject-field We are not injecting, we are removing.
+
+    return true
+  end
+
+  return false
+end
+
+--- Convert binary to hex.
+---@param binary string The binary data to convert.
+---@return string hex The hex data.
+local function bin_to_hex(binary)
+  return (binary:gsub(".", function(c)
+    return ("%02x"):format(c:byte())
+  end))
+end
+
 --- Check if the credential store is enabled or not.
 ---@return boolean enabled Whether the credential store is enabled.
 function authentication_utils.is_credential_store_enabled()
@@ -123,11 +198,11 @@ function authentication_utils.enable_credential_store()
     return true
   end
 
-  term.blit(
-             "Are you sure you want to enable the credential store (y/n)? ",
-        "000000000000000000000000044444400000000000000000000000000000",
-  "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-  )
+  write("Are you sure you want to ")
+  term.setTextColor(colors.yellow)
+  write("enable ")
+  term.setTextColor(colors.white)
+  write("the credential store (y/n)? ")
 
   -- If the user doesn't confirm, cancel the operation.
   if not y_n() then
@@ -149,11 +224,14 @@ function authentication_utils.disable_credential_store()
     return true
   end
 
-  term.blit(
-             "Warning: Disabling the credential store will remove all stored credentials.",
-        "111111110000000000000000000000000000000000000111111000000000000000000000000",
-  "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-  ) print()
+  term.setTextColor(colors.orange)
+  write("Warning: ")
+  term.setTextColor(colors.white)
+  write("Disabling the credential store will ")
+  term.setTextColor(colors.orange)
+  write("remove")
+  term.setTextColor(colors.white)
+  print("all stored credentials.")
   term.setTextColor(colors.orange)
   print("  This action is not reversible.")
   term.setTextColor(colors.red)
@@ -178,12 +256,59 @@ function authentication_utils.disable_credential_store()
   return true
 end
 
+--- Remove an entry from the credential store.
+---@param site_name string The name of the site to remove the entry for.
+---@param entry_type CredentialType The type of the entry to remove.
+---@return boolean ok Whether the operation was successful.
+function authentication_utils.remove_entry(site_name, entry_type)
+  expect(1, site_name, "string")
+  expect(2, entry_type, "string")
+
+  -- Ensure the entry type is valid.
+  do
+    local found = false
+    for _, v in pairs(authentication_utils.ENTRY_TYPES) do
+      if v == entry_type then
+        found = true
+        break
+      end
+    end
+
+    if not found then
+      error(errors.InternalError(
+        ("Invalid entry type '%s'"):format(entry_type),
+        "This is a bug in the caller of remove_entry."
+      ), 2)
+    end
+  end
+
+  -- Check if the entry exists.
+  local filename = site_name .. "_" .. entry_type .. ".lson"
+  if not credential_store:exists(filename) then
+    print("No entry found for", site_name, "of type", entry_type)
+    return false
+  end
+
+  -- Confirm the deletion.
+  print("Are you sure you want to remove the entry for", site_name, "(y/n)?")
+  if not y_n() then
+    return false
+  end
+
+  -- Actually delete the entry.
+  credential_store:delete(filename)
+
+  return true
+end
+
 --- Get a basic username/password combo for a site. This will either use the encrypted cache or prompt the user for the credentials.
 ---@param site_name string The name of the site to get the credentials for.
 ---@return boolean ok Whether the operation was successful.
 ---@return string? username The username for the site.
 ---@return string? password The password for the site.
 function authentication_utils.get_user_pass(site_name)
+  expect(1, site_name, "string")
+
   -- First, check if we already have any cached data for this site.
   local filename = site_name .. "_up.lson"
   local exists = credential_store:exists(filename)
@@ -205,6 +330,12 @@ function authentication_utils.get_user_pass(site_name)
         "Missing credential data in credential store.",
         "Is the file corrupted?"
       ))
+    end
+
+    if test_expiry(entry) then
+      -- Overwrite the expired entry.
+      credential_store:serialize(filename, entry, true)
+      error(errors.AuthenticationError("The credentials have expired."))
     end
 
     local passphrase = read_expected_passphrase(site_name, entry.salt_verification, entry.hash, 1, 2)
@@ -286,7 +417,10 @@ function authentication_utils.get_user_pass(site_name)
       nonce_pass = nonce_pass,
       salt_verification = salt_verification,
       salt_encryption = salt_encryption,
-      hash = hash_verification
+      hash = hash_verification,
+
+      created = os.epoch "utc",
+      expiry = read_expiry_date()
     }
 
     -- Save the credentials.
@@ -302,6 +436,8 @@ end
 ---@return boolean ok Whether the operation was successful.
 ---@return string? token The authentication token for the site.
 function authentication_utils.get_token(site_name)
+  expect(1, site_name, "string")
+
   -- First, check if we already have any cached data for this site.
   local filename = site_name .. "_token.lson"
   local exists = credential_store:exists(filename)
@@ -323,6 +459,12 @@ function authentication_utils.get_token(site_name)
         "Missing credential data in credential store.",
         "Is the file corrupted?"
       ))
+    end
+
+    if test_expiry(entry) then
+      -- Overwrite the expired entry with the nonce data removed.
+      credential_store:serialize(filename, entry, true)
+      error(errors.AuthenticationError("The credentials have expired."))
     end
 
     local passphrase = read_expected_passphrase(site_name, entry.salt_verification, entry.hash, 1, 2)
@@ -386,7 +528,10 @@ function authentication_utils.get_token(site_name)
       nonce_token = nonce_token,
       salt_verification = salt_verification,
       salt_encryption = salt_encryption,
-      hash = hash_verification
+      hash = hash_verification,
+
+      created = os.epoch "utc",
+      expiry = read_expiry_date()
     }
 
     -- Save the credentials.
@@ -395,6 +540,84 @@ function authentication_utils.get_token(site_name)
   end
 
   return true, token
+end
+
+--- List all the entries in the credential store.
+function authentication_utils.list_credentials()
+  if not authentication_utils.is_credential_store_enabled() then
+    print("The credential store is disabled.")
+    return
+  end
+
+  local files = credential_store:list()
+
+  if #files == 0 then
+    print("No entries found in the credential store.")
+    return
+  end
+
+  -- Collect the entries to tabulate.
+  local entries_to_tabulate = {}
+  for _, file in ipairs(files) do
+    local entry = credential_store:unserialize(file) --[[@as CredentialEntry]]
+    if not entry then
+      error(errors.InternalError(
+        ("Failed to unserialize credential data for file %s"):format(file),
+        "Is the file corrupted?"
+      ))
+    end
+
+    local entry_type = file:match("_(%w+).lson")
+    if entry_type == authentication_utils.ENTRY_TYPES.USER_PASS then
+      entry_type = "User/Pass"
+    elseif entry_type == authentication_utils.ENTRY_TYPES.TOKEN then
+      entry_type = "Token"
+    else
+      entry_type = "Unknown"
+    end
+
+    --- Compute how long until the timestamp.
+    local function relative_date(timestamp)
+      local now = os.epoch "utc"
+
+      if timestamp < now then
+        return "Expired"
+      end
+
+      local diff = timestamp - now
+      local year, day, hour, minute = 365 * 24 * 60 * 60 * 1000, 24 * 60 * 60 * 1000, 60 * 60 * 1000, 60 * 1000
+      local years = math.floor(diff / year)
+      local days = math.floor((diff % year) / day)
+      local hours = math.floor((diff % day) / hour)
+      local minutes = math.floor((diff % hour) / minute)
+
+      if years > 0 then
+        return ("%d years, %d days"):format(years, days)
+      elseif days > 0 then
+        return ("%d days, %d hours"):format(days, hours)
+      elseif hours > 0 then
+        return ("%d hours, %d minutes"):format(hours, minutes)
+      else
+        return ("%d minutes"):format(minutes)
+      end
+    end
+
+    table.insert(entries_to_tabulate, {
+      "  " .. entry.site_name,
+      entry_type,
+      bin_to_hex(entry.hash):sub(1, 5) .. "...",
+      entry.expiry and relative_date(entry.expiry) or "Never"
+    })
+  end
+
+  -- Display the entries.
+  print("Entries in the credential store:\n")
+  textutils.tabulate(
+    colors.yellow, {"  Site ", "Type ", "Hash ", "Expiry "},
+    colors.yellow, {"  \x8c\x8c\x8c\x8c\x8c", "\x8c\x8c\x8c\x8c\x8c", "\x8c\x8c\x8c\x8c\x8c", "\x8c\x8c\x8c\x8c\x8c\x8c\x8c"},
+    colors.white, table.unpack(entries_to_tabulate)
+  )
+  print()
 end
 
 return authentication_utils
