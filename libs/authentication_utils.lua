@@ -325,17 +325,17 @@ function authentication_utils.get_user_pass(site_name)
       ))
     end
 
+    if test_expiry(entry) then
+      -- Overwrite the expired entry.
+      credential_store:serialize(filename, entry, true)
+      error(errors.AuthenticationError("The credentials have expired."))
+    end
+
     if not entry.hash or not entry.salt_verification or not entry.salt_encryption or not entry.nonce_uname or not entry.nonce_pass or not entry.username or not entry.password then
       error(errors.InternalError(
         "Missing credential data in credential store.",
         "Is the file corrupted?"
       ))
-    end
-
-    if test_expiry(entry) then
-      -- Overwrite the expired entry.
-      credential_store:serialize(filename, entry, true)
-      error(errors.AuthenticationError("The credentials have expired."))
     end
 
     local passphrase = read_expected_passphrase(site_name, entry.salt_verification, entry.hash, 1, 2)
@@ -454,17 +454,17 @@ function authentication_utils.get_token(site_name)
       ))
     end
 
+    if test_expiry(entry) then
+      -- Overwrite the expired entry with the nonce data removed.
+      credential_store:serialize(filename, entry, true)
+      error(errors.AuthenticationError("The credentials have expired."))
+    end
+
     if not entry.hash or not entry.salt_verification or not entry.salt_encryption or not entry.nonce_token or not entry.token then
       error(errors.InternalError(
         "Missing credential data in credential store.",
         "Is the file corrupted?"
       ))
-    end
-
-    if test_expiry(entry) then
-      -- Overwrite the expired entry with the nonce data removed.
-      credential_store:serialize(filename, entry, true)
-      error(errors.AuthenticationError("The credentials have expired."))
     end
 
     local passphrase = read_expected_passphrase(site_name, entry.salt_verification, entry.hash, 1, 2)
