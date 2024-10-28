@@ -154,13 +154,17 @@ local function read_expiry_date()
   return expiry
 end
 
---- Test if an entry has expired, if it has, remove any nonce data and return true.
+--- Test if an entry has expired, if it has, remove any nonce data and salt data.
 ---@param entry CredentialEntry The entry to test.
 ---@return boolean expired Whether the entry has expired.
 local function test_expiry(entry)
   local now = os.epoch "utc"
 
   if entry.expiry and entry.expiry < now then
+    -- Salts
+    entry.salt_verification = nil
+    entry.salt_encryption = nil
+
     -- Username/Password nonces
     entry.nonce_uname = nil ---@diagnostic disable-line:inject-field We are not injecting, we are removing.
     entry.nonce_pass = nil  ---@diagnostic disable-line:inject-field We are not injecting, we are removing.
