@@ -597,9 +597,11 @@ function authentication_utils.list_credentials()
         return ("%d days, %d hours"):format(days, hours)
       elseif hours > 0 then
         return ("%d hours, %d minutes"):format(hours, minutes)
-      else
+      elseif minutes > 0 then
         return ("%d minutes"):format(minutes)
       end
+
+      return "Less than a minute"
     end
 
     table.insert(entries_to_tabulate, {
