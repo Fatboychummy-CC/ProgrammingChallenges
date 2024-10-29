@@ -84,7 +84,7 @@ local function y_n()
   until key == keys.y or key == keys.n
   os.pullEvent("char") -- consume the char event this also generates.
   term.setCursorBlink(false)
-  print()
+  print(key == keys.y and "y" or "n")
 
   return key == keys.y
 end
@@ -355,7 +355,9 @@ function credential_store.entries.remove(site_name, entry_type)
   end
 
   -- Confirm the deletion.
-  print("Are you sure you want to remove the entry for", site_name, "(y/n)?")
+  write("Are you sure you want to remove the entry for ")
+  write(site_name)
+  write(" (y/n)? ")
   if not y_n() then
     return false
   end
