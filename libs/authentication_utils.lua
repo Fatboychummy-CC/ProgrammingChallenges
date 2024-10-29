@@ -22,6 +22,7 @@ local credential_store = file_helper:instanced(".credential_store")
 ---@field salt_encryption string The salt used to generate the hash of the encryption key.
 ---@field created integer The UTC timestamp of when the entry was created.
 ---@field expiry integer? The UTC timestamp of when the entry will expire, if it will expire.
+---@field type CredentialType The type of the entry.
 
 ---@class UserPassCredentialEntry : CredentialEntry
 ---@field username string The username for the site, encrypted.
@@ -39,7 +40,8 @@ local authentication_utils = {
   ENTRY_TYPES = {
     USER_PASS = "up",
     TOKEN = "token"
-  }
+  },
+  entries = {}
 }
 
 --- Display a percentage based on progress.
@@ -154,13 +156,49 @@ local function read_expiry_date()
   return expiry
 end
 
+--- Compute how long until a given timestamp.
+---@param timestamp integer? The timestamp to compute the relative date for.
+---@param now integer? The current time, if not given, it will be calculated.
+---@return string relative_date The relative date.
+---@return boolean near_expiry Whether the entry is near expiry.
+---@return boolean expired Whether the entry has expired.
+local function relative_expiry(timestamp, now)
+  if not timestamp then
+    return "never", false, false
+  end
+  now = now or os.epoch "utc"
+
+  if timestamp < now then
+    return "expired", true, true
+  end
+
+  local diff = timestamp - now
+  local year, day, hour, minute = 365 * 24 * 60 * 60 * 1000, 24 * 60 * 60 * 1000, 60 * 60 * 1000, 60 * 1000
+  local years = math.floor(diff / year)
+  local days = math.floor((diff % year) / day)
+  local hours = math.floor((diff % day) / hour)
+  local minutes = math.floor((diff % hour) / minute)
+
+  if years > 0 then
+    return ("%d years, %d days"):format(years, days), false, false
+  elseif days > 0 then
+    return ("%d days, %d hours"):format(days, hours), false, false
+  elseif hours > 0 then
+    return ("%d hours, %d minutes"):format(hours, minutes), true, false
+  elseif minutes > 0 then
+    return ("%d minutes"):format(minutes), true, false
+  end
+
+  return "less than a minute", true, false
+end
+
 --- Test if an entry has expired, if it has, remove any nonce data and salt data.
 ---@param entry CredentialEntry The entry to test.
 ---@return boolean expired Whether the entry has expired.
 local function test_expiry(entry)
-  local now = os.epoch "utc"
+  local message, near_expiry, expired = relative_expiry(entry.expiry)
 
-  if entry.expiry and entry.expiry < now then
+  if expired then
     -- Salts
     entry.salt_verification = nil
     entry.salt_encryption = nil
@@ -173,6 +211,13 @@ local function test_expiry(entry)
     entry.nonce_token = nil ---@diagnostic disable-line:inject-field We are not injecting, we are removing.
 
     return true
+  end
+
+  -- Display a warning if under a day left.
+  if near_expiry then
+    term.setTextColor(colors.yellow)
+    print("Warning: The credentials for", entry.site_name, "in", message)
+    term.setTextColor(colors.white)
   end
 
   return false
@@ -260,35 +305,51 @@ function authentication_utils.disable_credential_store()
   return true
 end
 
+--- Get the filename for an entry given the site name and entry type.
+---@param site_name string The name of the site.
+---@param entry_type CredentialType The type of the entry.
+---@return string filename The filename for the entry.
+local function _entry_filename(site_name, entry_type)
+  return ("%s_%s.lson"):format(site_name, entry_type)
+end
+
+--- Check if an entry exists in the credential store.
+---@param site_name string The name of the site to check for.
+---@param entry_type CredentialType The type of the entry to check for.
+---@return boolean exists Whether the entry exists.
+local function _entry_exists(site_name, entry_type)
+  return credential_store:exists(_entry_filename(site_name, entry_type))
+end
+
+--- Check if an entry type is valid.
+---@param entry_type CredentialType The type of the entry to check.
+---@param details string The details that should be provided in the error message, if one is thrown.
+local function _entry_type_valid(entry_type, details)
+  for _, v in pairs(authentication_utils.ENTRY_TYPES) do
+    if v == entry_type then
+      return
+    end
+  end
+
+  error(errors.InternalError(
+    ("Invalid entry type '%s'"):format(entry_type),
+    details
+  ), 3)
+end
+
 --- Remove an entry from the credential store.
 ---@param site_name string The name of the site to remove the entry for.
 ---@param entry_type CredentialType The type of the entry to remove.
 ---@return boolean ok Whether the operation was successful.
-function authentication_utils.remove_entry(site_name, entry_type)
+function authentication_utils.entries.remove(site_name, entry_type)
   expect(1, site_name, "string")
   expect(2, entry_type, "string")
 
   -- Ensure the entry type is valid.
-  do
-    local found = false
-    for _, v in pairs(authentication_utils.ENTRY_TYPES) do
-      if v == entry_type then
-        found = true
-        break
-      end
-    end
-
-    if not found then
-      error(errors.InternalError(
-        ("Invalid entry type '%s'"):format(entry_type),
-        "This is a bug in the caller of remove_entry."
-      ), 2)
-    end
-  end
+  _entry_type_valid(entry_type, "This is a bug in the caller of `entries.remove`.")
 
   -- Check if the entry exists.
-  local filename = site_name .. "_" .. entry_type .. ".lson"
-  if not credential_store:exists(filename) then
+  if not _entry_exists(site_name, entry_type) then
     print("No entry found for", site_name, "of type", entry_type)
     return false
   end
@@ -300,7 +361,95 @@ function authentication_utils.remove_entry(site_name, entry_type)
   end
 
   -- Actually delete the entry.
-  credential_store:delete(filename)
+  credential_store:delete(_entry_filename(site_name, entry_type))
+
+  return true
+end
+
+--- Check if an entry exists in the credential store.
+---@param site_name string The name of the site to check for.
+---@param entry_type CredentialType The type of the entry to check for.
+---@return boolean exists Whether the entry exists.
+function authentication_utils.entries.exists(site_name, entry_type)
+  expect(1, site_name, "string")
+  expect(2, entry_type, "string")
+
+  -- Ensure the entry type is valid.
+  _entry_type_valid(entry_type, "This is a bug in the caller of `entries.exists`.")
+
+  return credential_store:exists(_entry_filename(site_name, entry_type))
+end
+
+--- Get a raw entry from the credential store.
+---@param site_name string The name of the site to get the entry for.
+---@param entry_type CredentialType The type of the entry to get.
+---@return boolean ok Whether the operation was successful.
+---@return CredentialEntry? entry The entry for the site.
+function authentication_utils.entries.get(site_name, entry_type)
+  expect(1, site_name, "string")
+  expect(2, entry_type, "string")
+
+  -- Ensure the entry type is valid.
+  _entry_type_valid(entry_type, "This is a bug in the caller of `entries.get`.")
+
+  -- Check if the entry exists.
+  if not _entry_exists(site_name, entry_type) then
+    print("No entry found for", site_name, "of type", entry_type)
+    return false
+  end
+
+  -- Actually get the entry.
+  local entry = credential_store:unserialize(_entry_filename(site_name, entry_type))
+
+  if not entry then
+    error(errors.InternalError(
+      ("Failed to unserialize credential data for site %s"):format(site_name),
+      "Is the file corrupted?"
+    ))
+  end
+
+  return true, entry
+end
+
+--- Get all the entries in the credential store.
+---@return CredentialEntry[] entries The entries in the credential store.
+function authentication_utils.entries.get_all()
+  local files = credential_store:list()
+
+  ---@type CredentialEntry[]
+  local entries = {}
+
+  for _, file in ipairs(files) do
+    local entry = credential_store:unserialize(file) --[[@as CredentialEntry]]
+
+    if not entry then
+      error(errors.InternalError(
+        ("Failed to unserialize credential data for file %s"):format(file),
+        "Is the file corrupted?"
+      ))
+    end
+
+    table.insert(entries, entry)
+  end
+
+  return entries
+end
+
+--- Write an entry to the credential store. This will overwrite any existing entry.
+---@param site_name string The name of the site to add the entry for.
+---@param entry_type CredentialType The type of the entry to add.
+---@param entry CredentialEntry The entry to add.
+---@return boolean ok Whether the operation was successful.
+function authentication_utils.entries.write(site_name, entry_type, entry)
+  expect(1, site_name, "string")
+  expect(2, entry_type, "string")
+  expect(3, entry, "table")
+
+  -- Ensure the entry type is valid.
+  _entry_type_valid(entry_type, "This is a bug in the caller of `entries.write`.")
+
+  -- Actually add the entry.
+  credential_store:serialize(_entry_filename(site_name, entry_type), entry, true)
 
   return true
 end
@@ -314,13 +463,12 @@ function authentication_utils.get_user_pass(site_name)
   expect(1, site_name, "string")
 
   -- First, check if we already have any cached data for this site.
-  local filename = site_name .. "_up.lson"
-  local exists = credential_store:exists(filename)
+  local exists = authentication_utils.entries.exists(site_name, authentication_utils.ENTRY_TYPES.USER_PASS)
   local store_enabled = authentication_utils.is_credential_store_enabled()
 
   -- It exists, prompt the user for the encryption password.
   if store_enabled and exists then
-    local entry = credential_store:unserialize(filename) --[[@as CredentialEntry]]
+    local entry = authentication_utils.entries.get(site_name, authentication_utils.ENTRY_TYPES.USER_PASS) --[[@as UserPassCredentialEntry]]
 
     if not entry then
       error(errors.InternalError(
@@ -331,7 +479,7 @@ function authentication_utils.get_user_pass(site_name)
 
     if test_expiry(entry) then
       -- Overwrite the expired entry.
-      credential_store:serialize(filename, entry, true)
+      authentication_utils.entries.write(site_name, authentication_utils.ENTRY_TYPES.USER_PASS, entry)
       error(errors.AuthenticationError("The credentials have expired."))
     end
 
@@ -422,14 +570,15 @@ function authentication_utils.get_user_pass(site_name)
       salt_verification = salt_verification,
       salt_encryption = salt_encryption,
       hash = hash_verification,
+      type = authentication_utils.ENTRY_TYPES.USER_PASS,
 
       created = os.epoch "utc",
-      expiry = read_expiry_date()
+      expiry = read_expiry_date(),
     }
 
     -- Save the credentials.
     print("Saving credentials...")
-    credential_store:serialize(filename, entry, true)
+    authentication_utils.entries.write(site_name, authentication_utils.ENTRY_TYPES.USER_PASS, entry)
   end
 
   return true, username, password
@@ -443,13 +592,12 @@ function authentication_utils.get_token(site_name)
   expect(1, site_name, "string")
 
   -- First, check if we already have any cached data for this site.
-  local filename = site_name .. "_token.lson"
-  local exists = credential_store:exists(filename)
+  local exists = authentication_utils.entries.exists(site_name, authentication_utils.ENTRY_TYPES.TOKEN)
   local store_enabled = authentication_utils.is_credential_store_enabled()
 
   -- It exists, prompt the user for the encryption password.
   if store_enabled and exists then
-    local entry = credential_store:unserialize(filename) --[[@as CredentialEntry]]
+    local entry = authentication_utils.entries.get(site_name, authentication_utils.ENTRY_TYPES.TOKEN) --[[@as TokenCredentialEntry]]
 
     if not entry then
       error(errors.InternalError(
@@ -460,7 +608,7 @@ function authentication_utils.get_token(site_name)
 
     if test_expiry(entry) then
       -- Overwrite the expired entry with the nonce data removed.
-      credential_store:serialize(filename, entry, true)
+      authentication_utils.entries.write(site_name, authentication_utils.ENTRY_TYPES.TOKEN, entry)
       error(errors.AuthenticationError("The credentials have expired."))
     end
 
@@ -533,6 +681,7 @@ function authentication_utils.get_token(site_name)
       salt_verification = salt_verification,
       salt_encryption = salt_encryption,
       hash = hash_verification,
+      type = authentication_utils.ENTRY_TYPES.TOKEN,
 
       created = os.epoch "utc",
       expiry = read_expiry_date()
@@ -540,7 +689,7 @@ function authentication_utils.get_token(site_name)
 
     -- Save the credentials.
     print("Saving token...")
-    credential_store:serialize(filename, entry, true)
+    authentication_utils.entries.write(site_name, authentication_utils.ENTRY_TYPES.TOKEN, entry)
   end
 
   return true, token
@@ -553,25 +702,19 @@ function authentication_utils.list_credentials()
     return
   end
 
-  local files = credential_store:list()
+  local entries = authentication_utils.entries.get_all()
 
-  if #files == 0 then
+  if #entries == 0 then
     print("No entries found in the credential store.")
     return
   end
 
-  -- Collect the entries to tabulate.
+  -- Collect the entry data for tabulation.
   local entries_to_tabulate = {}
-  for _, file in ipairs(files) do
-    local entry = credential_store:unserialize(file) --[[@as CredentialEntry]]
-    if not entry then
-      error(errors.InternalError(
-        ("Failed to unserialize credential data for file %s"):format(file),
-        "Is the file corrupted?"
-      ))
-    end
+  for _, entry in ipairs(entries) do
+    ---@type string we will be overwriting this with a string value.
+    local entry_type = entry.type
 
-    local entry_type = file:match("_(%w+).lson")
     if entry_type == authentication_utils.ENTRY_TYPES.USER_PASS then
       entry_type = "User/Pass"
     elseif entry_type == authentication_utils.ENTRY_TYPES.TOKEN then
@@ -580,39 +723,11 @@ function authentication_utils.list_credentials()
       entry_type = "Unknown"
     end
 
-    --- Compute how long until the timestamp.
-    local function relative_date(timestamp)
-      local now = os.epoch "utc"
-
-      if timestamp < now then
-        return "Expired"
-      end
-
-      local diff = timestamp - now
-      local year, day, hour, minute = 365 * 24 * 60 * 60 * 1000, 24 * 60 * 60 * 1000, 60 * 60 * 1000, 60 * 1000
-      local years = math.floor(diff / year)
-      local days = math.floor((diff % year) / day)
-      local hours = math.floor((diff % day) / hour)
-      local minutes = math.floor((diff % hour) / minute)
-
-      if years > 0 then
-        return ("%d years, %d days"):format(years, days)
-      elseif days > 0 then
-        return ("%d days, %d hours"):format(days, hours)
-      elseif hours > 0 then
-        return ("%d hours, %d minutes"):format(hours, minutes)
-      elseif minutes > 0 then
-        return ("%d minutes"):format(minutes)
-      end
-
-      return "Less than a minute"
-    end
-
     table.insert(entries_to_tabulate, {
       "  " .. entry.site_name,
       entry_type,
       bin_to_hex(entry.hash):sub(1, 5) .. "...",
-      entry.expiry and relative_date(entry.expiry) or "Never"
+      entry.expiry and relative_expiry(entry.expiry) or "Never"
     })
   end
 
