@@ -13,7 +13,7 @@ local PBKDF2_SALT_SIZE = 128
 local CHACHA20_ROUNDS = 20
 local CHACHA20_NONCE_SIZE = 12
 
-local credential_store = file_helper:instanced(".credential_store")
+local credential_directory = file_helper:instanced(".credential_store")
 
 ---@class CredentialEntry
 ---@field site_name string The name of the site.
@@ -34,8 +34,8 @@ local credential_store = file_helper:instanced(".credential_store")
 ---@field token string The authentication token for the site, encrypted.
 ---@field nonce_token string The nonce used to encrypt the token.
 
----@class authentication_utils
-local authentication_utils = {
+---@class credential_store
+local credential_store = {
   ---@enum CredentialType
   ENTRY_TYPES = {
     USER_PASS = "up",
@@ -234,15 +234,15 @@ end
 
 --- Check if the credential store is enabled or not.
 ---@return boolean enabled Whether the credential store is enabled.
-function authentication_utils.is_credential_store_enabled()
-  return not credential_store:exists(".disabled")
+function credential_store.is_credential_store_enabled()
+  return not credential_directory:exists(".disabled")
 end
 
 --- Enable the credential store.
 ---@return boolean ok Whether the operation was successful (User must confirm).
-function authentication_utils.enable_credential_store()
+function credential_store.enable_credential_store()
   -- If the store is already enabled, return true.
-  if authentication_utils.is_credential_store_enabled() then
+  if credential_store.is_credential_store_enabled() then
     print("The credential store is already enabled.")
     return true
   end
@@ -259,16 +259,16 @@ function authentication_utils.enable_credential_store()
   end
 
   -- The user has confirmed, delete the disabled file.
-  credential_store:delete(".disabled")
+  credential_directory:delete(".disabled")
 
   return true
 end
 
 --- Disable the credential store.
 ---@return boolean ok Whether the operation was successful (User must confirm).
-function authentication_utils.disable_credential_store()
+function credential_store.disable_credential_store()
   -- If the store is already disabled, return true.
-  if not authentication_utils.is_credential_store_enabled() then
+  if not credential_store.is_credential_store_enabled() then
     print("The credential store is already disabled.")
     return true
   end
@@ -293,12 +293,12 @@ function authentication_utils.disable_credential_store()
   end
 
   -- Delete all the other files in the store.
-  for _, file in ipairs(credential_store:list()) do
-    credential_store:delete(file)
+  for _, file in ipairs(credential_directory:list()) do
+    credential_directory:delete(file)
   end
 
   -- Create the empty file to indicate that the store is disabled.
-  credential_store:empty(".disabled")
+  credential_directory:empty(".disabled")
 
   print("All stored credentials have been removed, and the credential store has been disabled.")
 
@@ -318,14 +318,14 @@ end
 ---@param entry_type CredentialType The type of the entry to check for.
 ---@return boolean exists Whether the entry exists.
 local function _entry_exists(site_name, entry_type)
-  return credential_store:exists(_entry_filename(site_name, entry_type))
+  return credential_directory:exists(_entry_filename(site_name, entry_type))
 end
 
 --- Check if an entry type is valid.
 ---@param entry_type CredentialType The type of the entry to check.
 ---@param details string The details that should be provided in the error message, if one is thrown.
 local function _entry_type_valid(entry_type, details)
-  for _, v in pairs(authentication_utils.ENTRY_TYPES) do
+  for _, v in pairs(credential_store.ENTRY_TYPES) do
     if v == entry_type then
       return
     end
@@ -341,7 +341,7 @@ end
 ---@param site_name string The name of the site to remove the entry for.
 ---@param entry_type CredentialType The type of the entry to remove.
 ---@return boolean ok Whether the operation was successful.
-function authentication_utils.entries.remove(site_name, entry_type)
+function credential_store.entries.remove(site_name, entry_type)
   expect(1, site_name, "string")
   expect(2, entry_type, "string")
 
@@ -361,7 +361,7 @@ function authentication_utils.entries.remove(site_name, entry_type)
   end
 
   -- Actually delete the entry.
-  credential_store:delete(_entry_filename(site_name, entry_type))
+  credential_directory:delete(_entry_filename(site_name, entry_type))
 
   return true
 end
@@ -370,14 +370,14 @@ end
 ---@param site_name string The name of the site to check for.
 ---@param entry_type CredentialType The type of the entry to check for.
 ---@return boolean exists Whether the entry exists.
-function authentication_utils.entries.exists(site_name, entry_type)
+function credential_store.entries.exists(site_name, entry_type)
   expect(1, site_name, "string")
   expect(2, entry_type, "string")
 
   -- Ensure the entry type is valid.
   _entry_type_valid(entry_type, "This is a bug in the caller of `entries.exists`.")
 
-  return credential_store:exists(_entry_filename(site_name, entry_type))
+  return credential_directory:exists(_entry_filename(site_name, entry_type))
 end
 
 --- Get a raw entry from the credential store.
@@ -385,7 +385,7 @@ end
 ---@param entry_type CredentialType The type of the entry to get.
 ---@return boolean ok Whether the operation was successful.
 ---@return CredentialEntry? entry The entry for the site.
-function authentication_utils.entries.get(site_name, entry_type)
+function credential_store.entries.get(site_name, entry_type)
   expect(1, site_name, "string")
   expect(2, entry_type, "string")
 
@@ -399,7 +399,7 @@ function authentication_utils.entries.get(site_name, entry_type)
   end
 
   -- Actually get the entry.
-  local entry = credential_store:unserialize(_entry_filename(site_name, entry_type))
+  local entry = credential_directory:unserialize(_entry_filename(site_name, entry_type))
 
   if not entry then
     error(errors.InternalError(
@@ -413,14 +413,14 @@ end
 
 --- Get all the entries in the credential store.
 ---@return CredentialEntry[] entries The entries in the credential store.
-function authentication_utils.entries.get_all()
-  local files = credential_store:list()
+function credential_store.entries.get_all()
+  local files = credential_directory:list()
 
   ---@type CredentialEntry[]
   local entries = {}
 
   for _, file in ipairs(files) do
-    local entry = credential_store:unserialize(file) --[[@as CredentialEntry]]
+    local entry = credential_directory:unserialize(file) --[[@as CredentialEntry]]
 
     if not entry then
       error(errors.InternalError(
@@ -440,7 +440,7 @@ end
 ---@param entry_type CredentialType The type of the entry to add.
 ---@param entry CredentialEntry The entry to add.
 ---@return boolean ok Whether the operation was successful.
-function authentication_utils.entries.write(site_name, entry_type, entry)
+function credential_store.entries.write(site_name, entry_type, entry)
   expect(1, site_name, "string")
   expect(2, entry_type, "string")
   expect(3, entry, "table")
@@ -449,7 +449,7 @@ function authentication_utils.entries.write(site_name, entry_type, entry)
   _entry_type_valid(entry_type, "This is a bug in the caller of `entries.write`.")
 
   -- Actually add the entry.
-  credential_store:serialize(_entry_filename(site_name, entry_type), entry, true)
+  credential_directory:serialize(_entry_filename(site_name, entry_type), entry, true)
 
   return true
 end
@@ -459,16 +459,16 @@ end
 ---@return boolean ok Whether the operation was successful.
 ---@return string? username The username for the site.
 ---@return string? password The password for the site.
-function authentication_utils.get_user_pass(site_name)
+function credential_store.get_user_pass(site_name)
   expect(1, site_name, "string")
 
   -- First, check if we already have any cached data for this site.
-  local exists = authentication_utils.entries.exists(site_name, authentication_utils.ENTRY_TYPES.USER_PASS)
-  local store_enabled = authentication_utils.is_credential_store_enabled()
+  local exists = credential_store.entries.exists(site_name, credential_store.ENTRY_TYPES.USER_PASS)
+  local store_enabled = credential_store.is_credential_store_enabled()
 
   -- It exists, prompt the user for the encryption password.
   if store_enabled and exists then
-    local entry = authentication_utils.entries.get(site_name, authentication_utils.ENTRY_TYPES.USER_PASS) --[[@as UserPassCredentialEntry]]
+    local entry = credential_store.entries.get(site_name, credential_store.ENTRY_TYPES.USER_PASS) --[[@as UserPassCredentialEntry]]
 
     if not entry then
       error(errors.InternalError(
@@ -479,7 +479,7 @@ function authentication_utils.get_user_pass(site_name)
 
     if test_expiry(entry) then
       -- Overwrite the expired entry.
-      authentication_utils.entries.write(site_name, authentication_utils.ENTRY_TYPES.USER_PASS, entry)
+      credential_store.entries.write(site_name, credential_store.ENTRY_TYPES.USER_PASS, entry)
       error(errors.AuthenticationError("The credentials have expired."))
     end
 
@@ -570,7 +570,7 @@ function authentication_utils.get_user_pass(site_name)
       salt_verification = salt_verification,
       salt_encryption = salt_encryption,
       hash = hash_verification,
-      type = authentication_utils.ENTRY_TYPES.USER_PASS,
+      type = credential_store.ENTRY_TYPES.USER_PASS,
 
       created = os.epoch "utc",
       expiry = read_expiry_date(),
@@ -578,7 +578,7 @@ function authentication_utils.get_user_pass(site_name)
 
     -- Save the credentials.
     print("Saving credentials...")
-    authentication_utils.entries.write(site_name, authentication_utils.ENTRY_TYPES.USER_PASS, entry)
+    credential_store.entries.write(site_name, credential_store.ENTRY_TYPES.USER_PASS, entry)
   end
 
   return true, username, password
@@ -588,16 +588,16 @@ end
 ---@param site_name string The name of the site to get the token for.
 ---@return boolean ok Whether the operation was successful.
 ---@return string? token The authentication token for the site.
-function authentication_utils.get_token(site_name)
+function credential_store.get_token(site_name)
   expect(1, site_name, "string")
 
   -- First, check if we already have any cached data for this site.
-  local exists = authentication_utils.entries.exists(site_name, authentication_utils.ENTRY_TYPES.TOKEN)
-  local store_enabled = authentication_utils.is_credential_store_enabled()
+  local exists = credential_store.entries.exists(site_name, credential_store.ENTRY_TYPES.TOKEN)
+  local store_enabled = credential_store.is_credential_store_enabled()
 
   -- It exists, prompt the user for the encryption password.
   if store_enabled and exists then
-    local entry = authentication_utils.entries.get(site_name, authentication_utils.ENTRY_TYPES.TOKEN) --[[@as TokenCredentialEntry]]
+    local entry = credential_store.entries.get(site_name, credential_store.ENTRY_TYPES.TOKEN) --[[@as TokenCredentialEntry]]
 
     if not entry then
       error(errors.InternalError(
@@ -608,7 +608,7 @@ function authentication_utils.get_token(site_name)
 
     if test_expiry(entry) then
       -- Overwrite the expired entry with the nonce data removed.
-      authentication_utils.entries.write(site_name, authentication_utils.ENTRY_TYPES.TOKEN, entry)
+      credential_store.entries.write(site_name, credential_store.ENTRY_TYPES.TOKEN, entry)
       error(errors.AuthenticationError("The credentials have expired."))
     end
 
@@ -681,7 +681,7 @@ function authentication_utils.get_token(site_name)
       salt_verification = salt_verification,
       salt_encryption = salt_encryption,
       hash = hash_verification,
-      type = authentication_utils.ENTRY_TYPES.TOKEN,
+      type = credential_store.ENTRY_TYPES.TOKEN,
 
       created = os.epoch "utc",
       expiry = read_expiry_date()
@@ -689,20 +689,20 @@ function authentication_utils.get_token(site_name)
 
     -- Save the credentials.
     print("Saving token...")
-    authentication_utils.entries.write(site_name, authentication_utils.ENTRY_TYPES.TOKEN, entry)
+    credential_store.entries.write(site_name, credential_store.ENTRY_TYPES.TOKEN, entry)
   end
 
   return true, token
 end
 
 --- List all the entries in the credential store.
-function authentication_utils.list_credentials()
-  if not authentication_utils.is_credential_store_enabled() then
+function credential_store.list_credentials()
+  if not credential_store.is_credential_store_enabled() then
     print("The credential store is disabled.")
     return
   end
 
-  local entries = authentication_utils.entries.get_all()
+  local entries = credential_store.entries.get_all()
 
   if #entries == 0 then
     print("No entries found in the credential store.")
@@ -715,9 +715,9 @@ function authentication_utils.list_credentials()
     ---@type string we will be overwriting this with a string value.
     local entry_type = entry.type
 
-    if entry_type == authentication_utils.ENTRY_TYPES.USER_PASS then
+    if entry_type == credential_store.ENTRY_TYPES.USER_PASS then
       entry_type = "User/Pass"
-    elseif entry_type == authentication_utils.ENTRY_TYPES.TOKEN then
+    elseif entry_type == credential_store.ENTRY_TYPES.TOKEN then
       entry_type = "Token"
     else
       entry_type = "Unknown"
@@ -741,4 +741,4 @@ function authentication_utils.list_credentials()
   print()
 end
 
-return authentication_utils
+return credential_store

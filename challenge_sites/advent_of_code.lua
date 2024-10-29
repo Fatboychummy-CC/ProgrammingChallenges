@@ -1,11 +1,14 @@
 --- Advent of Code Challenge Site
 
+local credential_store = require("credential_store")
+
 ---@class AdventOfCode : ChallengeSite
 local site = {
   name = "advent-of-code",
   website = "https://adventofcode.com/",
   description = "Advent of Code is an Advent calendar of small programming puzzles for a variety of skill sets and skill levels that can be solved in any programming language you like.",
-  folder_depth = 2
+  folder_depth = 2,
+  credential_store_type = credential_store.ENTRY_TYPES.USER_PASS
 }
 
 local URL_FORMATTER = site.website .. "%d/day/%d"

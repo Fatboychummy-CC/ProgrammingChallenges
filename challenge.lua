@@ -18,7 +18,7 @@ package.path = package.path .. ";libs/?.lua;libs/?/init.lua"
 local file_helper = require "file_helper"
 local completion = require "cc.completion"
 local errors = require "errors"
-local authentication_utils = require "authentication_utils"
+local credential_store = require "credential_store"
 
 local CHALLENGES_ROOT = "challenges"
 local SITES_ROOT = "challenge_sites"
@@ -311,11 +311,11 @@ local function cred_store(site, ...)
 
   if site == "cred-store" then -- Global cred-store commands
     if sub_command == "disable" then
-      authentication_utils.disable_credential_store()
+      credential_store.disable_credential_store()
     elseif sub_command == "enable" then
-      authentication_utils.enable_credential_store()
+      credential_store.enable_credential_store()
     elseif sub_command == "list" then
-      authentication_utils.list_credentials()
+      credential_store.list_credentials()
     else
       error(errors.UserError(
         ("Unknown subcommand '%s'"):format(sub_command),
@@ -502,13 +502,13 @@ process_command = function(args)
     local sub_command = table.remove(args, 1)
 
     if sub_command == "token" then
-      local ok, token = authentication_utils.get_token("test")
+      local ok, token = credential_store.get_token("test")
       term.setTextColor(colors.orange)
       print("Success:", ok)
       print("Token:", token)
       term.setTextColor(colors.white)
     elseif sub_command == "up" then
-      local ok, user, pass = authentication_utils.get_user_pass("test")
+      local ok, user, pass = credential_store.get_user_pass("test")
       term.setTextColor(colors.orange)
       print("Success:", ok)
       print("User:", user)

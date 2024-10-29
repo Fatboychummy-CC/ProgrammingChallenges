@@ -7,17 +7,24 @@
 --- 
 --- You will want to create a class that extends this ChallengeSite class,
 --- containing the necessary methods to interact with the site.
---- 
+
+local credential_store = require "credential_store"
+
 ---@class ChallengeSite
 ---@field name string The name of the challenge site. This is used as a semi-ID for the site, and cannot contain spaces, and must be all-lowercase.
 ---@field website string The website homepage of the challenge site.
 ---@field description string A brief description of the challenge site.
 ---@field folder_depth integer The required depth of the challenge site folders. This is used to determine how many arguments are needed for various commands, and should equal however many "unique" folders are needed to reach the challenges.
+---@field credential_store_type string The type of credential store to use for this site. This should be one of the `authentication_utils.ENTRY_TYPES` values.
+
+---@class ExampleChallengeSite : ChallengeSite
+---@field cookies string The cookies needed to authenticate with the site.
 local site = {
   name = "example",
   website = "https://example.com",
   description = "An example challenge site.",
-  folder_depth = 2
+  folder_depth = 2,
+  credential_store_type = credential_store.ENTRY_TYPES.USER_PASS
 }
 
 local errors = require "errors"
@@ -30,7 +37,7 @@ function site.authenticate()
   -- This method will ask the user for their username and password.
   -- It will also ask if the user would like to save it for future use.
   -- If it is saved, it will pull from that instead of asking again.
-  local user, pass = require("authentication_utils").get_basic_credentials(site.website)
+  local user, pass = credential_store.get_basic_credentials(site.website)
 
   local response, err = http.get(site.website .. "/auth", {
     ["Authorization"] = require("base64").encode(user .. ":" .. pass) -- or however your site does its authentication
