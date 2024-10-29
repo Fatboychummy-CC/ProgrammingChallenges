@@ -292,7 +292,17 @@ end
 --- Credential Store : Remove an entry
 ---@param site string The site to remove the credentials for.
 local function remove_credentials(site)
-  
+  -- Get the site info
+  local site_obj = sites[site]
+
+  if not site_obj then
+    error(errors.UserError(
+      ("Unknown challenge site '%s'"):format(site),
+      "Provide a valid challenge site name."
+    ))
+  end
+
+  credential_store.entries.remove(site, site_obj.credential_store_type)
 end
 
 --- Credential Store : Handle a command.
@@ -502,13 +512,13 @@ process_command = function(args)
     local sub_command = table.remove(args, 1)
 
     if sub_command == "token" then
-      local ok, token = credential_store.get_token("test")
+      local ok, token = credential_store.get_token("advent-of-code")
       term.setTextColor(colors.orange)
       print("Success:", ok)
       print("Token:", token)
       term.setTextColor(colors.white)
     elseif sub_command == "up" then
-      local ok, user, pass = credential_store.get_user_pass("test")
+      local ok, user, pass = credential_store.get_user_pass("advent-of-code")
       term.setTextColor(colors.orange)
       print("Success:", ok)
       print("User:", user)
@@ -548,6 +558,8 @@ process_command = function(args)
       submit(site, table.unpack(args))
     elseif sub_command == "help" then
       display_help(command, true)
+    elseif sub_command == "cred-store" then
+      cred_store(command, table.unpack(args))
     else
       printError(errors.UserError(
         ("Unknown command '%s'"):format(sub_command),
