@@ -1,11 +1,27 @@
---- This library contains a bunch of utilities for authentication.
+--- This library is a simple credential store for storing encrypted credentials
+--- for various sites.
+--- 
+--- The library uses a combination of PBKDF2 for key derivation, SHA-256 for
+--- hashing, and ChaCha20 for encryption. The library also uses a simple
+--- file-based storage system for storing the credentials.
+--- 
+--- This library is released to the public domain under The Unlicense.
+--- Originally created by Fatboychummy.
 
 local expect = require "cc.expect".expect
-local file_helper = require "file_helper"
 local chacha20 = require "ccryptolib.chacha20"
 local sha256 = require "ccryptolib.sha256"
 local random = require "ccryptolib.random"
-local errors = require "errors"
+local file_helper = (function() -- Minified from https://github.com/Fatboychummy-CC/Libraries/blob/main/file_helper.lua
+  ---@diagnostic disable-next-line
+  local a=require"cc.expect".expect;local b={working_directory=fs.getDir(shell.getRunningProgram())}function b:get_lines(c,d)if type(self)~="table"then d=c;c=self;self=b end;a(1,c,"string")a(2,d,"table","nil")local e={}if not fs.exists(fs.combine(self.working_directory,c))then return d or{n=0}end;for f in io.lines(fs.combine(self.working_directory,c))do table.insert(e,f)end;e.n=#e;return e end;function b:get_all(c,d)if type(self)~="table"then d=c;c=self;self=b end;a(1,c,"string")a(2,d,"string","nil")local g=io.open(fs.combine(self.working_directory,c),'r')if not g then return d or""end;local h=g:read"*a"g:close()return h end;function b:write(c,h)if type(self)~="table"then h=c;c=self;self=b end;a(1,c,"string")a(2,h,"string")local g,i=io.open(fs.combine(self.working_directory,c),'w')if not g then error(("Failed to open '%s' for writing: %s"):format(fs.combine(self.working_directory,c),i),2)end;g:write(h):close()end;function b:append(c,h)if type(self)~="table"then h=c;c=self;self=b end;a(1,c,"string")a(2,h,"string")local g,i=io.open(fs.combine(self.working_directory,c),'a')if not g then error(("Failed to open '%s' for writing: %s"):format(fs.combine(self.working_directory,c),i),2)end;g:write(h):close()end;function b:empty(c)if type(self)~="table"then c=self;self=b end;a(1,c,"string","nil")c=c or""fs.delete(fs.combine(self.working_directory,c))local g,i=io.open(fs.combine(self.working_directory,c),'w')if not g then error(("Failed to open '%s' for writing: %s"):format(fs.combine(self.working_directory,c),i),2)end;g:close()end;function b:unserialize(c,d)if type(self)~="table"then d=c;c=self;self=b end;a(1,c,"string")local g=io.open(fs.combine(self.working_directory,c),'r')if not g then return d end;local h=textutils.unserialise(g:read"*a")g:close()return h end;function b:serialize(c,h,j)if type(self)~="table"then j=h;h=c;c=self;self=b end;a(1,c,"string")a(3,j,"boolean","nil")local g,i=io.open(fs.combine(self.working_directory,c),'w')if not g then error(("Failed to open '%s' for writing: %s"):format(fs.combine(self.working_directory,c),i),2)end;g:write(textutils.serialize(h,{compact=j and true or false})):close()end;function b:instanced(k)if type(self)~="table"then k=self;self=b end;local l={working_directory=fs.combine(self.working_directory,k)}return setmetatable(l,{__index=b})end;function b:exists(c)if type(self)~="table"then c=self;self=b end;a(1,c,"string","nil")c=c or""return fs.exists(fs.combine(self.working_directory,c))end;function b:delete(c)if type(self)~="table"then c=self;self=b end;a(1,c,"string","nil")c=c or""fs.delete(fs.combine(self.working_directory,c))end;function b:list(m)if type(self)~="table"then m=self;self=b end;a(1,m,"string","nil")m=m or""return fs.list(fs.combine(self.working_directory,m))end;function b:is_directory(n)if type(self)~="table"then n=self;self=b end;a(1,n,"string","nil")n=n or""return fs.isDir(fs.combine(self.working_directory,n))end;function b:open(c,o)if type(self)~="table"then c=self;o=c;self=b end;a(1,c,"string")a(2,o,"string")return fs.open(fs.combine(self.working_directory,c),o)end;function b:is_read_only(n)if type(self)~="table"then n=self;self=b end;a(1,n,"string","nil")n=n or""return fs.isReadOnly(fs.combine(self.working_directory,n))end;function b:get_dir(n)if type(self)~="table"then n=self;self=b end;a(1,n,"string","nil")n=n or""return fs.getDir(fs.combine(self.working_directory,n))end;function b:get_name(n)if type(self)~="table"then n=self;self=b end;a(1,n,"string","nil")n=n or""return fs.getName(fs.combine(self.working_directory,n))end;function b:get_size(n)if type(self)~="table"then n=self;self=b end;a(1,n,"string","nil")n=n or""return fs.getSize(fs.combine(self.working_directory,n))end;function b:get_free_space(n)if type(self)~="table"then n=self;self=b end;a(1,n,"string","nil")n=n or""return fs.getFreeSpace(fs.combine(self.working_directory,n))end;function b:make_dir(n)if type(self)~="table"then n=self;self=b end;a(1,n,"string","nil")n=n or""fs.makeDir(fs.combine(self.working_directory,n))end;function b:move(p,q)if type(self)~="table"then q=p;p=self;self=b end;a(1,p,"string")a(2,q,"string")fs.move(fs.combine(self.working_directory,p),fs.combine(self.working_directory,q))end;function b:copy(p,q)if type(self)~="table"then q=p;p=self;self=b end;a(1,p,"string")a(2,q,"string")fs.copy(fs.combine(self.working_directory,p),fs.combine(self.working_directory,q))end;return b
+end)() --[[@as file_helper]]
+
+local errors = (function() -- Minified from https://github.com/Fatboychummy-CC/Libraries/blob/main/errors.lua
+  ---@diagnostic disable-next-line
+  local a={}local b="%s : %s\n%s\n\n%s"local c="%s : %s\n%s"local d={__tostring=function(self)if self.traceback then return b:format(self.type,self.message,self.details,self.traceback)end;return c:format(self.type,self.message,self.details)end}local function e(f)local g=f.level or 2;return error(setmetatable({message=f.message or"An unknown error occurred",details=f.details or"No details provided",type=f.type or"UnknownError",traceback=debug.traceback(nil,g)or"No traceback available"},d),g)end;function a.UserError(h,i,g)return e{message=h,details=i,type="UserError",traceback=debug.traceback(),level=g}end;function a.InternalError(h,i,g)return e{message=h,details=i,traceback=debug.traceback(),type="InternalError",level=g}end;function a.ChallengeError(h,i,g)return e{message=h,details=i,traceback=debug.traceback(),type="ChallengeError",level=g}end;function a.NetworkError(h,i,g)return e{message=h,details=i,type="NetworkError",traceback=debug.traceback(),level=g}end;function a.AuthenticationError(h,i,g)return e{message=h,details=i,type="AuthenticationError",traceback=debug.traceback(),level=g}end;function a.Error(h,i,j,g)return e{message=h,details=i,type=j,traceback=debug.traceback(),level=g}end;return a
+end)() --[[@as Errors]]
+
 random.initWithTiming()
 
 local PBKDF2_ROUNDS = 10000
@@ -102,7 +118,7 @@ local function read_expected_passphrase(site_name, pbkdf2_salt, pbkdf2_hash, sta
   repeat
     if f >= 3 then
       print()
-      error(errors.AuthenticationError("Too many incorrect passphrase attempts."))
+      errors.AuthenticationError("Too many incorrect passphrase attempts.", "Please try again.")
     elseif f ~= 0 then
       printError(" Incorrect passphrase, please try again.")
     end
@@ -196,6 +212,8 @@ end
 ---@param entry CredentialEntry The entry to test.
 ---@return boolean expired Whether the entry has expired.
 local function test_expiry(entry)
+  expect(1, entry, "table")
+
   local message, near_expiry, expired = relative_expiry(entry.expiry)
 
   if expired then
@@ -331,10 +349,11 @@ local function _entry_type_valid(entry_type, details)
     end
   end
 
-  error(errors.InternalError(
+  errors.InternalError(
     ("Invalid entry type '%s'"):format(entry_type),
-    details
-  ), 3)
+    details,
+    3
+  )
 end
 
 --- Remove an entry from the credential store.
@@ -404,10 +423,10 @@ function credential_store.entries.get(site_name, entry_type)
   local entry = credential_directory:unserialize(_entry_filename(site_name, entry_type))
 
   if not entry then
-    error(errors.InternalError(
+    errors.InternalError(
       ("Failed to unserialize credential data for site %s"):format(site_name),
       "Is the file corrupted?"
-    ))
+    )
   end
 
   return true, entry
@@ -425,10 +444,10 @@ function credential_store.entries.get_all()
     local entry = credential_directory:unserialize(file) --[[@as CredentialEntry]]
 
     if not entry then
-      error(errors.InternalError(
+      errors.InternalError(
         ("Failed to unserialize credential data for file %s"):format(file),
         "Is the file corrupted?"
-      ))
+      )
     end
 
     table.insert(entries, entry)
@@ -470,26 +489,26 @@ function credential_store.get_user_pass(site_name)
 
   -- It exists, prompt the user for the encryption password.
   if store_enabled and exists then
-    local entry = credential_store.entries.get(site_name, credential_store.ENTRY_TYPES.USER_PASS) --[[@as UserPassCredentialEntry]]
+    local ok, entry = credential_store.entries.get(site_name, credential_store.ENTRY_TYPES.USER_PASS) --[[@as UserPassCredentialEntry]]
 
-    if not entry then
-      error(errors.InternalError(
+    if not ok then
+      errors.InternalError(
         ("Failed to unserialize credential data for site %s"):format(site_name),
         "Is the file corrupted?"
-      ))
+      )
     end
 
     if test_expiry(entry) then
       -- Overwrite the expired entry.
       credential_store.entries.write(site_name, credential_store.ENTRY_TYPES.USER_PASS, entry)
-      error(errors.AuthenticationError("The credentials have expired."))
+      errors.AuthenticationError("The credentials have expired.")
     end
 
     if not entry.hash or not entry.salt_verification or not entry.salt_encryption or not entry.nonce_uname or not entry.nonce_pass or not entry.username or not entry.password then
-      error(errors.InternalError(
+      errors.InternalError(
         "Missing credential data in credential store.",
         "Is the file corrupted?"
-      ))
+      )
     end
 
     local passphrase = read_expected_passphrase(site_name, entry.salt_verification, entry.hash, 1, 2)
@@ -522,7 +541,7 @@ function credential_store.get_user_pass(site_name)
     write("> ")
     local confirm_password = read("*") --[[@as string]]
     if password ~= confirm_password then
-      printError(errors.UserError("Passwords do not match."))
+      printError("Passwords do not match.")
       return false
     end
 
@@ -531,7 +550,7 @@ function credential_store.get_user_pass(site_name)
     write("> ")
     local passphrase = read("*") --[[@as string]]
     if #passphrase > 32 then
-      printError(errors.UserError("Passphrase is too long."))
+      printError("Passphrase is too long.")
       return false
     end
 
@@ -540,7 +559,7 @@ function credential_store.get_user_pass(site_name)
     write("> ")
     local confirm_passphrase = read("*") --[[@as string]]
     if passphrase ~= confirm_passphrase then
-      printError(errors.UserError("Passphrases do not match."))
+      printError("Passphrases do not match.")
       return false
     end
 
@@ -599,26 +618,26 @@ function credential_store.get_token(site_name)
 
   -- It exists, prompt the user for the encryption password.
   if store_enabled and exists then
-    local entry = credential_store.entries.get(site_name, credential_store.ENTRY_TYPES.TOKEN) --[[@as TokenCredentialEntry]]
+    local ok, entry = credential_store.entries.get(site_name, credential_store.ENTRY_TYPES.TOKEN) --[[@as TokenCredentialEntry]]
 
-    if not entry then
-      error(errors.InternalError(
+    if not ok then
+      errors.InternalError(
         ("Failed to unserialize credential data for site %s"):format(site_name),
         "Is the file corrupted?"
-      ))
+      )
     end
 
     if test_expiry(entry) then
       -- Overwrite the expired entry with the nonce data removed.
       credential_store.entries.write(site_name, credential_store.ENTRY_TYPES.TOKEN, entry)
-      error(errors.AuthenticationError("The credentials have expired."))
+      errors.AuthenticationError("The credentials have expired.")
     end
 
     if not entry.hash or not entry.salt_verification or not entry.salt_encryption or not entry.nonce_token or not entry.token then
-      error(errors.InternalError(
+      errors.InternalError(
         "Missing credential data in credential store.",
         "Is the file corrupted?"
-      ))
+      )
     end
 
     local passphrase = read_expected_passphrase(site_name, entry.salt_verification, entry.hash, 1, 2)
@@ -646,7 +665,7 @@ function credential_store.get_token(site_name)
     write("> ")
     local passphrase = read("*") --[[@as string]]
     if #passphrase > 32 then
-      printError(errors.UserError("Passphrase is too long."))
+      printError("Passphrase is too long.")
       return false
     end
 
@@ -655,7 +674,7 @@ function credential_store.get_token(site_name)
     write("> ")
     local confirm_passphrase = read("*") --[[@as string]]
     if passphrase ~= confirm_passphrase then
-      printError(errors.UserError("Passphrases do not match."))
+      printError("Passphrases do not match.")
       return false
     end
 
