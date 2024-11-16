@@ -6,6 +6,13 @@ run and test your own solutions.
 The runner is also capable of getting the challenge descriptions (and test
 data), as well as submitting your solutions to the challenge websites.
 
+## Features
+- Encrypted credential storage for challenge websites.
+- Automatic test running and output comparison.
+- Interactive mode to test your solutions.
+- Extensible to support more challenge websites.
+- Libraries folder that is exposed to all challenge scripts for ease of use.
+
 ## Supported Challenge Websites
 Currently only Advent of Code is supported, but I plan to add more in the
 future.
@@ -43,8 +50,8 @@ commands:
 challenge advent-of-code get 2024 3 1
 ```
 
-Challenges are downloaded to the `challenges` folder, and each individual
-challenge has the following files:
+Challenges are downloaded to the `challenges/site-name` folder, and each
+individual challenge has the following files:
 - `description.md`: The description of the challenge.
 - `name.txt`: The name of the challenge.
 - `tests/`: A folder containing the various test data for the challenge.
@@ -54,6 +61,12 @@ challenge has the following files:
 - `run.lua`: The Lua script that you should provide your solution in.
 - `output.txt`: Not created until the challenge is ran at least once, contains
   the last output of the challenge.
+
+The individual challenge libraries define their own save structure, but as a
+general rule, the challenges will be downloaded such that each argument passed
+to the `get` command will be a subfolder "deeper". Again, using the earlier
+Advent of Code example, the challenge would be saved to
+`challenges/advent-of-code/2024/3/1/`.
 
 ### Extending the Runner
 If you want to add support for a new challenge website, you can do so by
