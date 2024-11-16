@@ -15,29 +15,30 @@
 --- - LeetCode
 
 package.path = package.path .. ";libs/?.lua;libs/?/init.lua"
-local file_helper = require "file_helper"
+local credential_store = require "credential_store"
+local filesystem = require "filesystem":programPath()
 local completion = require "cc.completion"
 local errors = require "errors"
-local credential_store = require "credential_store"
+-- local mock_filehandles = require "mock_filehandles"
 
 local CHALLENGES_ROOT = "challenges"
 local SITES_ROOT = "challenge_sites"
+
 
 ---@type table<string, ChallengeSite>
 local sites = {}
 
 --- Register a challenge site, doing a few checks to ensure it's valid.
----@param _path string The path to the challenge site file.
-local function register_site(_path)
-  local path = _path
-  if fs.isDir(path) then
-    path = fs.combine(path, "init.lua")
+---@param file FS_File The file representing the challenge site.
+local function register_site(file)
+  if file:isDirectory() then
+    file = file:file("init.lua")
   end
 
-  local handle, err = fs.open(path, "r")
+  local handle, err = file:open("r")
   if not handle then
     error(errors.InternalError(
-      ("Failed to open challenge site file '%s': %s"):format(path, err)
+      ("Failed to open challenge site file '%s': %s"):format(tostring(file), err)
     ))
   end
 
@@ -46,15 +47,15 @@ local function register_site(_path)
 
   if not content then
     error(errors.InternalError(
-      ("Failed to read challenge site file '%s'"):format(path),
+      ("Failed to read challenge site file '%s'"):format(tostring(file)),
       "File is empty, or some other issue occurred while reading."
     ))
   end
 
-  local site_func, load_err = load(content, "=" .. path, "t", _ENV)
+  local site_func, load_err = load(content, "=" .. tostring(file), "t", _ENV)
   if not site_func then
     error(errors.InternalError(
-      ("Failed to load challenge site file '%s': %s"):format(path, load_err),
+      ("Failed to load challenge site file '%s': %s"):format(tostring(file), load_err),
       "Compile error occurred while loading the file."
     ))
   end
@@ -62,14 +63,14 @@ local function register_site(_path)
   local success, _site = pcall(site_func)
   if not success then
     error(errors.InternalError(
-      ("Failed to load challenge site file '%s': %s"):format(path, _site),
+      ("Failed to load challenge site file '%s': %s"):format(tostring(file), _site),
       "Runtime error occurred while loading the file."
     ))
   end
 
   if type(_site) ~= "table" then
     error(errors.InternalError(
-      ("Invalid challenge site file '%s': Expected table, got %s"):format(path, type(_site)),
+      ("Invalid challenge site file '%s': Expected table, got %s"):format(tostring(file), type(_site)),
       "The file must return a table."
     ))
   end
@@ -78,7 +79,7 @@ local function register_site(_path)
   local function check_invalid_site(t, field_name, expected_type)
     if type(t[field_name]) ~= expected_type then
       error(errors.InternalError(
-        ("Invalid challenge site file '%s': Expected field '%s' to be of type %s, got %s"):format(path, field_name, expected_type, type(t[field_name])),
+        ("Invalid challenge site file '%s': Expected field '%s' to be of type %s, got %s"):format(tostring(file), field_name, expected_type, type(t[field_name])),
         "The file is returning a table with a required field that is missing or of the wrong type."
       ))
     end
@@ -94,11 +95,10 @@ end
 
 --- Load all challenge sites from the `challenge_sites` directory.
 local function register_challenge_sites()
+  local challenge_sites = filesystem:at(SITES_ROOT)
 
-  local challenge_sites = file_helper:instanced(SITES_ROOT)
-
-  for _, path in ipairs(challenge_sites:list()) do
-    register_site(fs.combine(challenge_sites.working_directory, path))
+  for _, file in ipairs(challenge_sites:list()) do
+    register_site(file)
   end
 end
 
@@ -125,23 +125,40 @@ local function display_help(site, no_name)
   local function p(str)
     print(str:format(program_name))
   end
+  local function pb(str)
+    term.setTextColor(colors.lightBlue)
+    p(str)
+  end
+  local function py(str)
+    term.setTextColor(colors.yellow)
+    p(str)
+  end
+  local function pg(str)
+    term.setTextColor(colors.lightGray)
+    p(str)
+  end
 
-  p("Usage: %s <site|command> <subcommand> [args...]")
-  p("  %s list")
-  p("    Lists all available challenge sites.")
-  p("  %s help")
-  p("    Displays this help message.")
-  p("  %s help <site>")
-  p("    Displays a help message for a specific challenge site.")
-  p("  %s <site> get [args...]")
-  p("    Retrieves a challenge from a challenge site.")
-  p("  %s <site> update [args...]")
-  p("    Updates a challenge from a challenge site.")
-  p("  %s <site> submit [args...]")
-  p("    Submits a challenge to a challenge site.")
-  p("  %s interactive <site>")
-  p("    Enters an interactive shell for a challenge site.")
-  p("    This just makes it so you don't have to type the site name every time.")
+  pb("Usage: %s <site|command> <subcommand> [args...]")
+  py("  %s list")
+  pg("    Lists all available challenge sites.")
+  py("  %s help")
+  pg("    Displays this help message.")
+  py("  %s cred-store enable")
+  pg("    Enables the credential store.")
+  py("  %s cred-store disable")
+  pg("    Disables the credential store.")
+  py("  %s <site> cred-store remove")
+  pg("    Removes the credentials for a specific challenge site.")
+  py("  %s <site> help")
+  pg("    Displays a help message for a specific challenge site.")
+  py("  %s <site> get [args...]")
+  pg("    Retrieves a challenge from a challenge site.")
+  py("  %s <site> update [args...]")
+  pg("    Updates a challenge from a challenge site.")
+  py("  %s <site> submit [args...]")
+  pg("    Submits a challenge to a challenge site.")
+  py("  %s <site> interactive")
+  pg("    Enters an interactive shell for a challenge site.")
 end
 
 --- List all available challenge sites.
@@ -177,7 +194,7 @@ end
 --- Get the directory for a challenge from a challenge site and user arguments.
 ---@param site ChallengeSite The challenge site to get the challenge from.
 ---@param ... string The arguments passed to the challenge site.
----@return file_helper directory The directory instance for the challenge.
+---@return FS_Root directory The directory instance for the challenge.
 local function get_challenge_dir(site, ...)
   -- First, we need to get the path to the challenge.
   local dirs = concat_dirs(site.folder_depth, ...)
@@ -185,7 +202,7 @@ local function get_challenge_dir(site, ...)
   -- This folder will be the root of the challenge.
   local cache_path = fs.combine(CHALLENGES_ROOT, site.name, dirs)
 
-  return file_helper:instanced(cache_path)
+  return filesystem:at(cache_path)
 end
 
 --- Get a challenge from a challenge site.
@@ -195,13 +212,15 @@ end
 ---@param ... string The arguments passed to the challenge site.
 local function get(internal, update, site, ...)
   local site_dir = get_challenge_dir(site, ...)
+  local data_dir = filesystem:at("data")
+
   if not update and site_dir:exists() then
     -- The challenge already exists, so lets just check for the cache file.
     ---@type Challenge
     local challenge = {
       site = site,
-      name = site_dir:get_all("name.txt", "Unknown"),
-      description = site_dir:get_all("description.md", "No description available."),
+      name = site_dir:file("namt.txt"):readAll() or "Unknown",
+      description = site_dir:file("description.md"):readAll() or "No description available.",
       test_inputs = {},
       test_outputs = {},
       input = ""
@@ -214,7 +233,7 @@ local function get(internal, update, site, ...)
         break
       end
 
-      table.insert(challenge.test_inputs, site_dir:get_all(file))
+      table.insert(challenge.test_inputs, site_dir:file(file):readAll())
     end
 
     -- Read each test output from the files.
@@ -224,13 +243,13 @@ local function get(internal, update, site, ...)
         break
       end
 
-      table.insert(challenge.test_outputs, site_dir:get_all(file))
+      table.insert(challenge.test_outputs, site_dir:file(file):readAll())
     end
 
     -- Read the challenge input from the file.
     local ok = site_dir:exists("input.txt")
     if ok then
-      challenge.input = site_dir:get_all("input.txt")
+      challenge.input = site_dir:file("input.txt"):readAll()
 
       return challenge
     end
@@ -258,25 +277,28 @@ local function get(internal, update, site, ...)
   site.get_challenge(empty_challenge, ...)
 
   -- Now we need to create the directories and files.
-  site_dir:make_dir()
-  site_dir:make_dir("tests")
-  site_dir:make_dir("tests/inputs")
-  site_dir:make_dir("tests/outputs")
+  site_dir:mkdir()
+  site_dir:mkdir("tests")
+  site_dir:mkdir("tests/inputs")
+  site_dir:mkdir("tests/outputs")
 
   -- For each test input, we will write it to the file.
   for i, input in ipairs(empty_challenge.test_inputs) do
-    site_dir:write("tests/inputs/" .. i .. ".txt", input)
+    site_dir:file("tests/inputs/" .. i .. ".txt"):write(input)
   end
 
   -- For each test output, we will write it to the file.
   for i, output in ipairs(empty_challenge.test_outputs) do
-    site_dir:write("tests/outputs/" .. i .. ".txt", output)
+    site_dir:file("tests/outputs/" .. i .. ".txt"):write(output)
   end
 
   -- Write the challenge data to the files.
-  site_dir:write("name.txt", empty_challenge.name)
-  site_dir:write("description.md", empty_challenge.description)
-  site_dir:write("input.txt", empty_challenge.input)
+  site_dir:file("name.txt"):write(empty_challenge.name)
+  site_dir:file("description.md"):write(empty_challenge.description)
+  site_dir:file("input.txt"):write(empty_challenge.input)
+
+  -- Write the default run.lua file
+  site_dir:file("run.lua"):copyTo(site_dir:file("default_challenge_runner.lua"))
 end
 
 --- Run a challenge from a challenge site.
@@ -305,62 +327,59 @@ local function remove_credentials(site)
   credential_store.entries.remove(site, site_obj.credential_store_type)
 end
 
---- Credential Store : Handle a command.
----@param site string The site to alter the credentials for.
----@param ... string The arguments passed to the command.
-local function cred_store(site, ...)
-  local args = table.pack(...)
-  local sub_command = table.remove(args, 1)
-  if not sub_command then
-    error(errors.UserError(
-      "No subcommand provided.",
-      "Provide a subcommand."
-    ))
-  end
-  sub_command = sub_command:lower()
-
-  if site == "cred-store" then -- Global cred-store commands
-    if sub_command == "disable" then
-      credential_store.disable_credential_store()
-    elseif sub_command == "enable" then
-      credential_store.enable_credential_store()
-    elseif sub_command == "list" then
-      credential_store.list_credentials()
-    else
-      error(errors.UserError(
-        ("Unknown subcommand '%s'"):format(sub_command),
-        "Provide a valid subcommand."
-      ))
+local function process_site_command(site, command, ...)
+  local commands = {
+    help = function()
+      display_help(site)
+    end,
+    get = function(...)
+      get(false, false, sites[site], ...)
+    end,
+    update = function(...)
+      get(false, true, sites[site], ...)
+    end,
+    submit = function(...)
+      submit(sites[site], ...)
+    end,
+    ["cred-store"] = function(subcommand, ...)
+      if subcommand and subcommand:lower() == "remove" then
+        remove_credentials(site)
+        return
+      end
     end
-    return
-  end
+  }
+  commands[""] = commands.help
+  commands["?"] = commands.help
+  commands["-h"] = commands.help
+  commands["--help"] = commands.help
 
-  if sub_command == "remove" then
-    remove_credentials(site)
-  else
-    error(errors.UserError(
-      ("Unknown subcommand '%s'"):format(sub_command),
-      "Provide a valid subcommand."
-    ))
-  end
-end
-
---- Process a command.
----@type fun(args: table)
----@param args table The arguments passed to the script.
-local function process_command(args) end -- Forward declaration
-
---- Enter an interactive shell for a challenge site.
-local function interactive(site)
-  local site_obj = sites[site]
-  if not site_obj then
+  if not sites[site] then
     error(errors.UserError(
       ("Unknown challenge site '%s'"):format(site),
       "Provide a valid challenge site name."
     ))
   end
 
+  command = (command or ""):lower()
+  if commands[command] then
+    commands[command](...)
+    return
+  end
+
+  error(errors.UserError(
+    ("Unknown command '%s' for challenge site '%s'"):format(command, site),
+    "Provide a valid command for the challenge site."
+  ))
+end
+
+local function interactive(site)
+  local site_obj = sites[site]
   local command_history = {}
+  local function add_history(cmd)
+    if command_history[#command_history] ~= cmd then
+      table.insert(command_history, cmd)
+    end
+  end
 
   while true do
     term.setTextColor(colors.lightBlue)
@@ -414,12 +433,15 @@ local function interactive(site)
         return completion.choice(text, allowed_commands) --[[@as string[] ]]
       end
     ) --[[@as string]]
-    table.insert(command_history, line)
+
+    add_history(line)
 
     -- Exit if the user types "exit".
     if line == "exit" then
       break
     end
+
+    --#region Process the command into parts
 
     -- Split the line into words
     local parts = {}
@@ -472,13 +494,15 @@ local function interactive(site)
       error(errors.UserError("Unmatched quote in command."))
     end
 
+    --#endregion Process the command into parts
+
     -- Now we can process the command.
     local command = {site}
     for _, part in ipairs(parts) do
       table.insert(command, part[1])
     end
 
-    local ok, err = pcall(process_command, command)
+    local ok, err = pcall(process_site_command, table.unpack(command))
 
     if not ok then
       if type(err) == "table" then
@@ -497,79 +521,106 @@ local function interactive(site)
   end
 end
 
---- Process a command.
----@type fun(args: table)
----@param args table The arguments passed to the script.
-process_command = function(args)
-  if #args == 0 then
-    display_help()
-    return
+--- Process a command from the user.
+---@param args string[] The command arguments.
+local function process_top_level_command(args)
+  local commands = {
+    list = list_sites,
+    help = display_help,
+    test = function(site_type)
+      if site_type == "up" then
+        local ok, user, pass = credential_store.get_user_pass("advent-of-code")
+        print("Success:", ok)
+        if ok then
+          print("User:", user)
+          print("Pass:", pass)
+        end
+      elseif site_type == "token" then
+        local ok, token = credential_store.get_token("advent-of-code")
+        print("Success:", ok)
+        if ok then
+          print("Token:", token)
+        end
+      end
+    end,
+    ["cred-store"] = function(subcommand)
+      if subcommand == "enable" then
+        credential_store.enable_credential_store()
+      elseif subcommand == "disable" then
+        credential_store.disable_credential_store()
+      elseif subcommand == "list" then
+        credential_store.list_credentials()
+      end
+    end
+  }
+  for name in pairs(sites) do
+    commands[name] = function(subcommand, ...)
+      if subcommand and subcommand:lower() == "interactive" then
+        interactive(name)
+      else
+        process_site_command(name, subcommand, ...)
+      end
+    end
   end
 
-  local command = table.remove(args, 1):lower()
+  local a1 = (args[1] or ""):lower()
 
-  if command == "test" then
-    local sub_command = table.remove(args, 1)
-
-    if sub_command == "token" then
-      local ok, token = credential_store.get_token("advent-of-code")
-      term.setTextColor(colors.orange)
-      print("Success:", ok)
-      print("Token:", token)
-      term.setTextColor(colors.white)
-    elseif sub_command == "up" then
-      local ok, user, pass = credential_store.get_user_pass("advent-of-code")
-      term.setTextColor(colors.orange)
-      print("Success:", ok)
-      print("User:", user)
-      print("Pass:", pass)
-      term.setTextColor(colors.white)
-    else
-      printError(errors.UserError(
-        ("Unknown test subcommand '%s'"):format(sub_command),
-        "Provide a valid subcommand."
-      ))
-    end
-  elseif command == "list" then
-    list_sites()
-  elseif command == "help" then
-    display_help(table.unpack(args))
-  elseif command == "cred-store" then
-    cred_store(command, table.unpack(args))
-  elseif command == "interactive" then
-    interactive(table.unpack(args))
+  if commands[a1] then
+    commands[a1](table.unpack(args, 2, args.n))
+    return
   else
-    local site = sites[command]
-    if not site then
-      error(errors.UserError(
-        ("Unknown challenge site '%s'"):format(command),
-        "Provide a valid challenge site name."
-      ))
-    end
-
-    local sub_command = table.remove(args, 1)
-    if sub_command == "get" then
-      get(false, false, site, table.unpack(args))
-    elseif sub_command == "run" then
-      run(site, table.unpack(args))
-    elseif sub_command == "update" then
-      get(false, true, site, table.unpack(args))
-    elseif sub_command == "submit" then
-      submit(site, table.unpack(args))
-    elseif sub_command == "help" then
-      display_help(command, true)
-    elseif sub_command == "cred-store" then
-      cred_store(command, table.unpack(args))
-    else
-      printError(errors.UserError(
-        ("Unknown command '%s'"):format(sub_command),
-        "Provide a valid command."
-      ))
-    end
+    display_help()
   end
 end
 
+
 register_challenge_sites()
 
+-- Register Autocomplete funcs, now that we have access to the challenge sites.
+do
+  local l1_choices = {"list", "help", "cred-store"}
+  for name in pairs(sites) do
+    table.insert(l1_choices, name .. " ")
+  end
+
+  local l2_cred_choices = {"enable", "disable", "list"}
+  local l2_choices = {"help", "get", "update", "submit", "interactive", "cred-store"}
+  local l3_choices = {"remove"}
+
+  shell.setCompletionFunction(shell.getRunningProgram(), function (shell, index, text, previous)
+    ---@cast previous string[]
+
+    if index == 1 then
+      return completion.choice(text, l1_choices)
+    end
+
+    if index == 2 then
+      if previous[2] == "cred-store" then
+        return completion.choice(text, l2_cred_choices)
+      end
+
+      if not sites[previous[2]] then
+        return
+      end
+
+      return completion.choice(text, l2_choices, true)
+    end
+
+    if index == 3 then
+      if previous[3] ~= "cred-store" then
+        return
+      end
+
+      return completion.choice(text, l3_choices)
+    end
+  end)
+end
+
+
 --- Main entry point for the script.
-process_command { ... }
+_G.errors_enable_traceback = true
+local ok, err = xpcall(process_top_level_command, debug.traceback, table.pack(...))
+
+if not ok then
+  error(err, 0)
+end
