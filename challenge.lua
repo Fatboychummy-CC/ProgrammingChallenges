@@ -219,7 +219,7 @@ local function get(internal, update, site, ...)
     ---@type Challenge
     local challenge = {
       site = site,
-      name = site_dir:file("namt.txt"):readAll() or "Unknown",
+      name = site_dir:file("name.txt"):readAll() or "Unknown",
       description = site_dir:file("description.md"):readAll() or "No description available.",
       test_inputs = {},
       test_outputs = {},
@@ -271,10 +271,19 @@ local function get(internal, update, site, ...)
   end
 
   ---@type EmptyChallenge
-  local empty_challenge = {
+  local challenge_data = {
     site = site
   }
-  site.get_challenge(empty_challenge, ...)
+  if site.authenticate then
+    local ok, err = site.authenticate()
+    if not ok then
+      error(errors.UserError(
+        "Failed to authenticate with the challenge site.",
+        err
+      ))
+    end
+  end
+  site.get_challenge(challenge_data, ...)
 
   -- Now we need to create the directories and files.
   site_dir:mkdir()
@@ -283,22 +292,22 @@ local function get(internal, update, site, ...)
   site_dir:mkdir("tests/outputs")
 
   -- For each test input, we will write it to the file.
-  for i, input in ipairs(empty_challenge.test_inputs) do
+  for i, input in ipairs(challenge_data.test_inputs) do
     site_dir:file("tests/inputs/" .. i .. ".txt"):write(input)
   end
 
   -- For each test output, we will write it to the file.
-  for i, output in ipairs(empty_challenge.test_outputs) do
+  for i, output in ipairs(challenge_data.test_outputs) do
     site_dir:file("tests/outputs/" .. i .. ".txt"):write(output)
   end
 
   -- Write the challenge data to the files.
-  site_dir:file("name.txt"):write(empty_challenge.name)
-  site_dir:file("description.md"):write(empty_challenge.description)
-  site_dir:file("input.txt"):write(empty_challenge.input)
+  site_dir:file("name.txt"):write(challenge_data.name)
+  site_dir:file("description.md"):write(challenge_data.description)
+  site_dir:file("input.txt"):write(challenge_data.input)
 
   -- Write the default run.lua file
-  site_dir:file("run.lua"):copyTo(site_dir:file("default_challenge_runner.lua"))
+  data_dir:file("default_challenge_runner.lua"):copyTo(site_dir:file("run.lua"))
 end
 
 --- Run a challenge from a challenge site.

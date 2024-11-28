@@ -20,7 +20,7 @@ local SUBMIT_URL_FORMATTER = URL_FORMATTER .. "/answer"
 ---@return boolean success Whether the authentication was successful.
 ---@return string? error The error message if the authentication failed.
 function site.authenticate()
-  return false
+  return false, "Not implemented"
 end
 
 --- Retrieve a challenge from Advent of Code.

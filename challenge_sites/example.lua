@@ -10,12 +10,86 @@
 
 local credential_store = require "credential_store"
 
+-- For the example class, skip everything until the terminator "--#########--"
+
 ---@class ChallengeSite
 ---@field name string The name of the challenge site. This is used as a semi-ID for the site, and cannot contain spaces, and must be all-lowercase.
 ---@field website string The website homepage of the challenge site.
 ---@field description string A brief description of the challenge site.
 ---@field folder_depth integer The required depth of the challenge site folders. This is used to determine how many arguments are needed for various commands, and should equal however many "unique" folders are needed to reach the challenges.
 ---@field credential_store_type string The type of credential store to use for this site. This should be one of the `authentication_utils.ENTRY_TYPES` values.
+local ChallengeSite = {}
+
+--- The authentication method. This should set `site.cookies` to the cookies
+--- needed to authenticate with the site.
+---@return boolean success Whether the authentication was successful.
+---@return string? error The error message if the authentication failed.
+function ChallengeSite.authenticate() return true end
+
+--- This object is passed to `site.get_challenge`, and is expected to be filled
+--- with the challenge data.
+---@class EmptyChallenge
+---@field site ChallengeSite The site this challenge is from.
+
+--- This represents the items that need to be filled out in the `EmptyChallenge`
+--- object to create a challenge.
+---@class Challenge : EmptyChallenge
+---@field name string The name of the challenge.
+---@field description string The description of the challenge. This will be stored as a `.md` file alongside the challenge.
+---@field test_inputs string[] The inputs to test the challenge with, if applicable. These will be stored in `challenge_root/tests/inputs/n.txt`, where `n` is the index of the input.
+---@field test_outputs string[] The expected outputs of the test inputs, if applicable. These will be stored in `challenge_root/tests/outputs/n.txt`, where `n` is the index of the output.
+---@field input string The actual input for the challenge. This will be stored in `challenge_root/input.txt`.
+
+--- The method to retrieve a challenge from the site. This is only called if
+--- local data does not already exist for the challenge, or if the user uses
+--- `update`.
+---@param empty_challenge EmptyChallenge|Challenge The EmptyChallenge object to be filled out.
+---@param ... string The arguments passed to the challenge library (past `challenge site_name get`).
+function ChallengeSite.get_challenge(empty_challenge, ...) end
+
+--- Submit a challenge to the site.
+---@param challenge Challenge The challenge to submit.
+---@param challenge_answer string The answer to submit.
+---@param ... string Additional arguments passed to the challenge library (past `challenge site_name submit`).
+---@return boolean success Whether the submission was successful.
+---@return string? error The error message if the submission failed.
+---@return string? details Detailed information about the error, if applicable.
+---@return string? hint A hint to help the user fix the error, if applicable.
+function ChallengeSite.submit(challenge, challenge_answer, ...) return true end
+
+--- This is the final step in the challenge runner. It is called after the
+--- challenge has been submitted, and is meant to display any final information
+--- to the user.
+---@param success boolean Whether the challenge was successful.
+---@param error string The error message if the challenge failed.
+---@param details string Detailed information about the error, if applicable.
+---@param hint string A hint to help the user fix the error, if applicable.
+function ChallengeSite.display_result(success, error, details, hint) end
+
+--- Display the help message for this site (i.e: what parameters are needed for `get`).
+--- This is called when the user runs `challenge site_name help`.
+---@param previous string The substring of the command from 1 to the start of "help".
+function ChallengeSite.help(previous) end
+
+--- The completion function for this site, used for tab completion in the interactive shell.
+--- This function is not required.
+---@param text string The text to complete.
+---@return string[] completions The possible completions.
+function ChallengeSite.completion(text) return {} end
+
+
+
+
+
+--#########--
+--#########--
+--#########--
+--#########--
+--#########--
+
+
+
+
 
 ---@class ExampleChallengeSite : ChallengeSite
 ---@field cookies string The cookies needed to authenticate with the site.
@@ -50,20 +124,6 @@ function site.authenticate()
 
   return response ~= nil and response.getResponseCode() == 200, err
 end
-
---- This object is passed to `site.get_challenge`, and is expected to be filled
---- with the challenge data.
----@class EmptyChallenge
----@field site ChallengeSite The site this challenge is from.
-
---- This represents the items that need to be filled out in the `EmptyChallenge`
---- object to create a challenge.
----@class Challenge : EmptyChallenge
----@field name string The name of the challenge.
----@field description string The description of the challenge. This will be stored as a `.md` file alongside the challenge.
----@field test_inputs string[] The inputs to test the challenge with, if applicable. These will be stored in `challenge_root/tests/inputs/n.txt`, where `n` is the index of the input.
----@field test_outputs string[] The expected outputs of the test inputs, if applicable. These will be stored in `challenge_root/tests/outputs/n.txt`, where `n` is the index of the output.
----@field input string The actual input for the challenge. This will be stored in `challenge_root/input.txt`.
 
 --- The method to retrieve a challenge from the site. This is only called if
 --- local data does not already exist for the challenge, or if the user uses
