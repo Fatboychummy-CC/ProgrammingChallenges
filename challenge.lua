@@ -458,6 +458,39 @@ end
 local function submit(site, ...)
   local site_dir = get_challenge_dir(site, ...)
   LOG.debugf("Submitting challenge from site '%s' at '%s'", site.name, tostring(site_dir))
+
+  -- First, we need to get the challenge data...
+  local challenge = get(true, false, site, ...)
+  if not challenge then
+    return
+  end
+
+  -- Now we can submit the challenge.
+  if site.authenticate then
+    LOG.debug("-> Requires authentication, authenticating...")
+    local ok, err = site.authenticate()
+    if not ok then
+      errors.UserError(
+        "Failed to authenticate with the challenge site.",
+        err
+      ) return
+    end
+  end
+
+  LOG.debug("-> Delegating to site to submit the challenge.")
+  local ok, err = site.submit(challenge, ...)
+
+  if not ok then
+    errors.ChallengeError(
+      "Submission failed.",
+      err
+    ) return
+  end
+
+  LOG.info("Challenge submitted.")
+  if err then
+    LOG.info("Message:", err)
+  end
 end
 
 --- Credential Store : Remove an entry
