@@ -20,8 +20,8 @@ local credential_store = require "credential_store"
 ---@field credential_store_type string The type of credential store to use for this site. This should be one of the `authentication_utils.ENTRY_TYPES` values.
 local ChallengeSite = {}
 
---- The authentication method. This should set `site.cookies` to the cookies
---- needed to authenticate with the site.
+--- The authentication method. This should set a value in the class that can
+--- be used in get_challenge (or others) to authenticate with the site.
 ---@return boolean success Whether the authentication was successful.
 ---@return string? error The error message if the authentication failed.
 function ChallengeSite.authenticate() return true end
@@ -39,13 +39,16 @@ function ChallengeSite.authenticate() return true end
 ---@field test_inputs string[] The inputs to test the challenge with, if applicable. These will be stored in `challenge_root/tests/inputs/n.txt`, where `n` is the index of the input.
 ---@field test_outputs string[] The expected outputs of the test inputs, if applicable. These will be stored in `challenge_root/tests/outputs/n.txt`, where `n` is the index of the output.
 ---@field input string The actual input for the challenge. This will be stored in `challenge_root/input.txt`.
+---@field directory FS_Root The root directory of the challenge. This is used to store the challenge data.
 
 --- The method to retrieve a challenge from the site. This is only called if
 --- local data does not already exist for the challenge, or if the user uses
 --- `update`.
 ---@param empty_challenge EmptyChallenge|Challenge The EmptyChallenge object to be filled out.
 ---@param ... string The arguments passed to the challenge library (past `challenge site_name get`).
-function ChallengeSite.get_challenge(empty_challenge, ...) end
+---@return boolean success Whether the challenge collection was successful.
+---@return string? warnings Any warnings that occurred during the collection.
+function ChallengeSite.get_challenge(empty_challenge, ...) return true end
 
 --- Submit a challenge to the site.
 ---@param challenge Challenge The challenge to submit.
@@ -103,8 +106,8 @@ local site = {
 
 local errors = require "errors"
 
---- The authentication method. This should set `site.cookies` to the cookies
---- needed to authenticate with the site.
+--- The authentication method. This should set a value in the class that can
+--- be used in get_challenge (or others) to authenticate with the site.
 ---@return boolean success Whether the authentication was successful.
 ---@return string? error The error message if the authentication failed.
 function site.authenticate()
@@ -130,6 +133,8 @@ end
 --- `update`.
 ---@param empty_challenge EmptyChallenge|Challenge The EmptyChallenge object to be filled out.
 ---@param ... string The arguments passed to the challenge library (past `challenge site_name get`).
+---@return boolean success Whether the challenge collection was successful.
+---@return string? warnings Any warnings that occurred during the collection.
 function site.get_challenge(empty_challenge, ...)
   local challenge_id, challenge_sub_id = ...
   -- get the challenge data from the site
@@ -145,6 +150,8 @@ function site.get_challenge(empty_challenge, ...)
 
   -- It is recommended to use the `errors` library for your errors.
   error(errors.InternalError("This is the example site."))
+
+  return false, "nuh uh"
 end
 
 --- Submit a challenge to the site.
