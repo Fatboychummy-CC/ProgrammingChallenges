@@ -28,7 +28,7 @@ local function run(input, output)
   local a = input:readNumber()
   local b = input:readNumber()
 
-  print(a, b, a + b) -- Printed data is NOT saved
+  print(a, "+", b, "=", a + b) -- Printed data is NOT saved
 
   -- Anything passed to `write` will be first `tostring`ed
   -- This ensures that certain numbers won't be output as 1.0000000000001 and
@@ -42,3 +42,5 @@ local function run(input, output)
   -- old-habits-die-hard.
   output:close()
 end
+
+return run
