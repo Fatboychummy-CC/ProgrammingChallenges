@@ -7,9 +7,10 @@ local extra_file_handles = {}
 
 --- Opens a file for reading, using a MockReadHandle
 ---@param path string|FS_Root The path to the file to open.
+---@param is_data boolean? If true, will treat `path` like it is pure data from a file.
 ---@return MockReadHandle? handle The read handle for the file.
 ---@return string? error The error message, if any.
-function extra_file_handles.openRead(path)
+function extra_file_handles.openRead(path, is_data)
   if type(path) == "table" then
     path = tostring(path)
     ---@cast path string  
@@ -127,6 +128,7 @@ function extra_file_handles.openRead(path)
     end
 
     -- Stage 2: From the found value, extend it until it is no longer a valid number.
+    stop = start
     while stop <= self.len do
       if not tonumber(self.data:sub(start, stop), base) then
         break
@@ -275,6 +277,15 @@ function extra_file_handles.openRead(path)
   end
 
 
+  if is_data then
+    MockReadHandle.data = path
+    MockReadHandle.len = #path
+    MockReadHandle.cursor = 1
+    MockReadHandle.closed = false
+    MockReadHandle.path = "data"
+    return MockReadHandle
+  end
+
   local _handle, err = fs.open(path, "rb")
   if not _handle then
     return nil, err
@@ -315,6 +326,7 @@ function extra_file_handles.openWrite(paths)
   ---@field paths string[] The paths to the files.
   ---@field handles table<string, BinaryWriteHandle> The raw handles to the files.
   ---@field closed boolean Whether the handle is closed.
+  ---@field buffer string Everything that has been written to the file, concatenated.
   local MockWriteHandle = {}
 
   local function attempt_closed()
@@ -333,6 +345,8 @@ function extra_file_handles.openWrite(paths)
     for _, handle in pairs(self.handles) do
       handle.write(tostring(data))
     end
+
+    self.buffer = self.buffer .. data
   end
 
   --- Write a formatted string to the handle.
@@ -347,6 +361,8 @@ function extra_file_handles.openWrite(paths)
     for _, handle in pairs(self.handles) do
       handle.write(data)
     end
+
+    self.buffer = self.buffer .. data
   end
 
   --- Write a line to the handle.
@@ -385,6 +401,8 @@ function extra_file_handles.openWrite(paths)
     for _, handle in pairs(self.handles) do
       handle.write(data)
     end
+
+    self.buffer = self.buffer .. data
   end
 
   --- Closes the write handle. The handle cannot be used after this.
@@ -407,6 +425,7 @@ function extra_file_handles.openWrite(paths)
   MockWriteHandle.paths = cleaned_paths
   MockWriteHandle.handles = {}
   MockWriteHandle.closed = false
+  MockWriteHandle.buffer = ""
 
   for _, path in ipairs(cleaned_paths) do
     local _handle, err = fs.open(path, "wb") --[[@as BinaryWriteHandle,string?]]
@@ -419,6 +438,28 @@ function extra_file_handles.openWrite(paths)
   end
 
   return MockWriteHandle
+end
+
+--- Opens a URL for reading, using a MockReadHandle
+---@param url string The URL to open.
+---@return MockReadHandle? handle The read handle for the URL.
+---@return string? error The error message, if any.
+function extra_file_handles.openURL(url)
+  expect(1, url, "string")
+
+  local response, err = http.get(url)
+  if not response then
+    return nil, err
+  end
+
+  local data = response.readAll()
+  response.close()
+
+  if not data then
+    return nil, "No data in response object."
+  end
+
+  return extra_file_handles.openRead(data, true)
 end
 
 return extra_file_handles
