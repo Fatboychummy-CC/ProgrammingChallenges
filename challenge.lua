@@ -37,6 +37,8 @@ local sites = {}
 --- Register a challenge site, doing a few checks to ensure it's valid.
 ---@param file FS_File The file representing the challenge site.
 local function register_site(file)
+  LOG.debugf("-> Registering challenge site '%s'", tostring(file))
+
   if file:isDirectory() then
     file = file:file("init.lua")
   end
@@ -95,6 +97,9 @@ local function register_site(file)
   check_invalid_site(_site, "website", "string")
   check_invalid_site(_site, "description", "string")
   check_invalid_site(_site, "folder_depth", "number")
+  check_invalid_site(_site, "credential_store_type", "string")
+
+  LOG.debugf("--> Registered challenge site '%s'", _site.name)
 
   sites[_site.name] = _site
 end
@@ -102,6 +107,7 @@ end
 --- Load all challenge sites from the `challenge_sites` directory.
 local function register_challenge_sites()
   local challenge_sites = filesystem:at(SITES_ROOT)
+  LOG.debug("Registering challenge sites")
 
   for _, file in ipairs(challenge_sites:list()) do
     register_site(file)
@@ -218,12 +224,17 @@ end
 ---@param update boolean If true, this command was invoked with the `update` command, and we will fetch the challenge no matter what. We can still fetch the challenge if this is false, but only if the challenge doesn't exist.
 ---@param site ChallengeSite The challenge site to get the challenge from.
 ---@param ... string The arguments passed to the challenge site.
+---@return Challenge challenge The challenge data.
 local function get(internal, update, site, ...)
   local site_dir = get_challenge_dir(site, ...)
   local data_dir = filesystem:at("data")
 
+  LOG.debugf("Getting challenge from site '%s' at '%s'", site.name, tostring(site_dir))
+
   if not update and site_dir:exists() then
-    -- The challenge already exists, so lets just check for the cache file.
+    LOG.debugf("-> Challenge directory already exists... Building on that.")
+
+    -- The challenge already exists, so lets just check for the cached files.
     ---@type Challenge
     local challenge = {
       site = site,
@@ -234,6 +245,7 @@ local function get(internal, update, site, ...)
       input = "",
       directory = site_dir
     }
+    LOG.debug("--> Collected name and description")
 
     -- Read each test input from the files.
     for i = 1, math.huge do
@@ -243,6 +255,7 @@ local function get(internal, update, site, ...)
       end
 
       table.insert(challenge.test_inputs, site_dir:file(file):readAll())
+      LOG.debugf("--> Collected test input %d", i)
     end
 
     -- Read each test output from the files.
@@ -253,12 +266,14 @@ local function get(internal, update, site, ...)
       end
 
       table.insert(challenge.test_outputs, site_dir:file(file):readAll())
+      LOG.debugf("--> Collected test output %d", i)
     end
 
     -- Read the challenge input from the file.
     local ok = site_dir:exists("input.txt")
     if ok then
       challenge.input = site_dir:file("input.txt"):readAll()
+      LOG.debug("--> Collected challenge input, done.")
 
       return challenge
     end
@@ -270,36 +285,45 @@ local function get(internal, update, site, ...)
       errors.InternalError(
         "Challenge input file is missing.",
         "Try updating the challenge."
-      ) return
+      ) return ---@diagnostic disable-line: missing-return-value
     end
   end
 
   -- The challenge doesn't exist, so we need to fetch it.
   if internal then
-    return
+    errors.UserError(
+      "Challenge does not exist.",
+      "You must first get the challenge before you can run it."
+    ) return ---@diagnostic disable-line: missing-return-value
+  end
+
+  LOG.debug("-> Challenge directory does not exist, fetching challenge.")
+  if site.authenticate then
+    LOG.debug("--> Requires authentication, authenticating...")
+    local ok, err = site.authenticate()
+    if not ok then
+      errors.UserError(
+        "Failed to authenticate with the challenge site.",
+        err
+      ) return ---@diagnostic disable-line: missing-return-value
+    end
   end
 
   ---@type EmptyChallenge
   local challenge_data = {
     site = site
   }
-  if site.authenticate then
-    local ok, err = site.authenticate()
-    if not ok then
-      errors.UserError(
-        "Failed to authenticate with the challenge site.",
-        err
-      ) return
-    end
-  end
+  LOG.debugf("--> Delegating to site '%s' to get the challenge data.", site.name)
   if not site.get_challenge(challenge_data, ...) then
     errors.InternalError(
       "Failed to get the challenge from the challenge site.",
       "The challenge site failed to provide the challenge data."
-    ) return
+    ) return ---@diagnostic disable-line: missing-return-value
   end
+  ---@cast challenge_data Challenge
 
   -- Now we need to create the directories and files.
+  LOG.debug("--> Creating directories and files for the challenge.")
   site_dir:mkdir()
   site_dir:mkdir("tests")
   site_dir:mkdir("tests/inputs")
@@ -322,6 +346,10 @@ local function get(internal, update, site, ...)
 
   -- Write the default run.lua file
   data_dir:file("default_challenge_runner.lua"):copyTo(site_dir:file("run.lua"))
+
+  LOG.debug("--> Challenge data written to files.")
+
+  return challenge_data
 end
 
 --- Run a challenge from a challenge site.
@@ -349,7 +377,7 @@ local function run(site, ...)
     ) return
   end
 
-  LOG.debugf("Compiling challenge runner at '%s'", tostring(run_file))
+  LOG.debugf("-> Compiling challenge runner at '%s'", tostring(run_file))
   local func, err = load(run_file:readAll(), "=" .. run_file.path, "t", _ENV)
   if not func then
     errors.UserError(
@@ -358,7 +386,7 @@ local function run(site, ...)
     ) return
   end
 
-  LOG.debug("Init challenge runner")
+  LOG.debug("-> Init challenge runner")
   local success, result = pcall(func, ...)
   if not success then
     errors.UserError(
@@ -369,7 +397,7 @@ local function run(site, ...)
 
 
   if type(result) == "function" then
-    LOG.debug("Loading challenge files")
+    LOG.debug("-> Loading challenge files")
     -- Load the input file, and the output files.
     local input_file, err = efh.openRead(site_dir:file("input.txt"))
     if not input_file then
@@ -425,8 +453,11 @@ local function run(site, ...)
 end
 
 --- Submit a challenge to a challenge site.
+---@param site ChallengeSite The challenge site to submit the challenge to.
+---@param ... string The arguments passed to the challenge site.
 local function submit(site, ...)
   local site_dir = get_challenge_dir(site, ...)
+  LOG.debugf("Submitting challenge from site '%s' at '%s'", site.name, tostring(site_dir))
 end
 
 --- Credential Store : Remove an entry
@@ -434,6 +465,7 @@ end
 local function remove_credentials(site)
   -- Get the site info
   local site_obj = sites[site]
+  LOG.debugf("Removing credentials for site '%s'", site)
 
   if not site_obj then
     errors.UserError(
@@ -443,6 +475,7 @@ local function remove_credentials(site)
   end
 
   credential_store.entries.remove(site, site_obj.credential_store_type)
+  LOG.info("Credentials removed.")
 end
 
 local function process_site_command(site, command, ...)
@@ -467,6 +500,11 @@ local function process_site_command(site, command, ...)
         remove_credentials(site)
         return
       end
+
+      errors.UserError(
+        ("Unknown subcommand '%s' for 'cred-store'"):format(subcommand),
+        "Provide a valid subcommand for the 'cred-store' command."
+      )
     end
   }
   commands[""] = commands.help
@@ -501,6 +539,8 @@ local function interactive(site)
       table.insert(command_history, cmd)
     end
   end
+
+  LOG.debugf("Launching interactive shell for site '%s'", site_obj.name)
 
   while true do
     term.setTextColor(colors.lightBlue)
