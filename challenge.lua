@@ -16,13 +16,19 @@
 
 package.path = package.path .. ";libs/?.lua;libs/?/init.lua"
 local credential_store = require "credential_store"
+local efh = require "extra_filehandles"
 local filesystem = require "filesystem":programPath()
 local completion = require "cc.completion"
 local errors = require "errors"
+local pretty_print = require "cc.pretty".pretty_print
+local logging = require "logging"
 -- local mock_filehandles = require "mock_filehandles"
 
 local CHALLENGES_ROOT = "challenges"
 local SITES_ROOT = "challenge_sites"
+
+local LOG = logging.create_context("challenge")
+logging.set_level(logging.LOG_LEVEL.DEBUG)
 
 
 ---@type table<string, ChallengeSite>
@@ -37,51 +43,51 @@ local function register_site(file)
 
   local handle, err = file:open("r")
   if not handle then
-    error(errors.InternalError(
+    errors.InternalError(
       ("Failed to open challenge site file '%s': %s"):format(tostring(file), err)
-    ))
+    ) return -- otherwise the linter thinks this continues.
   end
 
   local content = handle.readAll()
   handle.close()
 
   if not content then
-    error(errors.InternalError(
+    errors.InternalError(
       ("Failed to read challenge site file '%s'"):format(tostring(file)),
       "File is empty, or some other issue occurred while reading."
-    ))
+    ) return -- otherwise the linter thinks this continues.
   end
 
   local site_func, load_err = load(content, "=" .. tostring(file), "t", _ENV)
   if not site_func then
-    error(errors.InternalError(
+    errors.InternalError(
       ("Failed to load challenge site file '%s': %s"):format(tostring(file), load_err),
       "Compile error occurred while loading the file."
-    ))
+    ) return -- otherwise the linter thinks this continues.
   end
 
   local success, _site = pcall(site_func)
   if not success then
-    error(errors.InternalError(
+    errors.InternalError(
       ("Failed to load challenge site file '%s': %s"):format(tostring(file), _site),
       "Runtime error occurred while loading the file."
-    ))
+    ) return -- otherwise the linter thinks this continues.
   end
 
   if type(_site) ~= "table" then
-    error(errors.InternalError(
+    errors.InternalError(
       ("Invalid challenge site file '%s': Expected table, got %s"):format(tostring(file), type(_site)),
       "The file must return a table."
-    ))
+    ) return -- otherwise the linter thinks this continues.
   end
 
   -- Ensure the main fields are present.
   local function check_invalid_site(t, field_name, expected_type)
     if type(t[field_name]) ~= expected_type then
-      error(errors.InternalError(
+      errors.InternalError(
         ("Invalid challenge site file '%s': Expected field '%s' to be of type %s, got %s"):format(tostring(file), field_name, expected_type, type(t[field_name])),
         "The file is returning a table with a required field that is missing or of the wrong type."
-      ))
+      ) return -- otherwise the linter thinks this continues.
     end
   end
 
@@ -111,10 +117,10 @@ local function display_help(site, no_name)
   if site then
     local site_obj = sites[site]
     if not site_obj then
-      error(errors.UserError(
+      errors.UserError(
         ("Unknown challenge site '%s'"):format(site),
         "Provide a valid challenge site name."
-      ))
+      ) return
     end
 
     print(site_obj.description)
@@ -176,16 +182,18 @@ local function concat_dirs(n, ...)
   local dirs = table.pack(...)
   if dirs.n < n then
     -- This is a user error, so we will use level 0.
-    error(errors.UserError(
+    errors.UserError(
       ("Expected %d more argument(s)."):format(n - dirs.n),
-      ("Expected %d argument(s), got %d."):format(n, dirs.n)
-    ), 0)
+      ("Expected %d argument(s), got %d."):format(n, dirs.n),
+      0
+    ) return "" -- otherwise the linter thinks this continues.
   elseif dirs.n > n then
     -- This is a user error, so we will use level 0.
-    error(errors.UserError(
+    errors.UserError(
       ("Expected %d less argument(s)."):format(dirs.n - n),
-      ("Expected %d argument(s), got %d."):format(n, dirs.n)
-    ), 0)
+      ("Expected %d argument(s), got %d."):format(n, dirs.n),
+      0
+    ) return ""
   end
 
   return fs.combine(table.unpack(dirs, 1, dirs.n))
@@ -223,7 +231,8 @@ local function get(internal, update, site, ...)
       description = site_dir:file("description.md"):readAll() or "No description available.",
       test_inputs = {},
       test_outputs = {},
-      input = ""
+      input = "",
+      directory = site_dir
     }
 
     -- Read each test input from the files.
@@ -258,10 +267,10 @@ local function get(internal, update, site, ...)
     -- If we are directly calling `get`, we can do this fine. Otherwise, throw
     -- an error, as the user may not want to re-fetch the challenge.
     if internal then
-      error(errors.InternalError(
+      errors.InternalError(
         "Challenge input file is missing.",
         "Try updating the challenge."
-      ))
+      ) return
     end
   end
 
@@ -277,13 +286,18 @@ local function get(internal, update, site, ...)
   if site.authenticate then
     local ok, err = site.authenticate()
     if not ok then
-      error(errors.UserError(
+      errors.UserError(
         "Failed to authenticate with the challenge site.",
         err
-      ))
+      ) return
     end
   end
-  site.get_challenge(challenge_data, ...)
+  if not site.get_challenge(challenge_data, ...) then
+    errors.InternalError(
+      "Failed to get the challenge from the challenge site.",
+      "The challenge site failed to provide the challenge data."
+    ) return
+  end
 
   -- Now we need to create the directories and files.
   site_dir:mkdir()
@@ -311,8 +325,103 @@ local function get(internal, update, site, ...)
 end
 
 --- Run a challenge from a challenge site.
+---@param site ChallengeSite The challenge site to run the challenge from.
+---@param ... string The arguments passed to the challenge site.
 local function run(site, ...)
+  ---@FIXME I hate how this function looks, maybe we could abstract some things out, but right now it looks like a mess.
+
+
   local site_dir = get_challenge_dir(site, ...)
+  LOG.debugf("Running challenge from site '%s' at '%s'", site.name, tostring(site_dir))
+
+  if not site_dir:exists() then
+    errors.UserError(
+      "Challenge does not exist.",
+      "You must first get the challenge before you can run it."
+    ) return
+  end
+
+  local run_file = site_dir:file("run.lua")
+  if not run_file:exists() then
+    errors.UserError(
+      "Challenge runner does not exist.",
+      "You must first get the challenge before you can run it."
+    ) return
+  end
+
+  LOG.debugf("Compiling challenge runner at '%s'", tostring(run_file))
+  local func, err = load(run_file:readAll(), "=" .. run_file.path, "t", _ENV)
+  if not func then
+    errors.UserError(
+      "Compilation failed: " .. tostring(err),
+      "The challenge runner failed to compile. Check the file for errors, then try again."
+    ) return
+  end
+
+  LOG.debug("Init challenge runner")
+  local success, result = pcall(func, ...)
+  if not success then
+    errors.UserError(
+      "Setup error: " .. tostring(result),
+      "The challenge runner failed to execute. Check the file for errors, then try again."
+    ) return
+  end
+
+
+  if type(result) == "function" then
+    LOG.debug("Loading challenge files")
+    -- Load the input file, and the output files.
+    local input_file, err = efh.openRead(site_dir:file("input.txt"))
+    if not input_file then
+      errors.InternalError(
+        "Failed to open input file:" .. tostring(err),
+        "The input file could not be opened. Check the file exists, then try again."
+      ) return
+    end
+
+    local output_file, err = efh.openWrite {
+      site_dir:file("output.txt"),
+      filesystem:at("challenge_output.txt")
+    }
+    if not output_file then
+      errors.InternalError(
+        "Failed to open output file(s):" .. tostring(err),
+        "The output file(s) could not be opened. Does your computer have enough space?"
+      ) return
+    end
+
+    LOG.info("Running challenge")
+
+    local start_time = os.epoch("utc")
+    local ok, err = pcall(result, input_file, output_file)
+    local time = os.epoch("utc") - start_time
+
+    if not ok then
+      errors.UserError(
+        "Runtime error: " .. tostring(err),
+        "The challenge runner failed to execute. Check the file for errors, then try again."
+      ) return
+    end
+
+    if not input_file:isClosed() then
+      input_file:close()
+    end
+    if not output_file:isClosed() then
+      output_file:close()
+    end
+    LOG.debug("Input and output handles closed.")
+
+    LOG.info("Challenge completed in", time, "ms")
+    -- Mock the logger a bit...
+    term.blit(
+      "[RESULT] ",
+      "0dddddd00",
+      "fffffffff"
+    )
+    term.setTextColor(colors.lightBlue)
+    print(output_file.buffer)
+    term.setTextColor(colors.white)
+  end
 end
 
 --- Submit a challenge to a challenge site.
@@ -327,10 +436,10 @@ local function remove_credentials(site)
   local site_obj = sites[site]
 
   if not site_obj then
-    error(errors.UserError(
+    errors.UserError(
       ("Unknown challenge site '%s'"):format(site),
       "Provide a valid challenge site name."
-    ))
+    )
   end
 
   credential_store.entries.remove(site, site_obj.credential_store_type)
@@ -346,6 +455,9 @@ local function process_site_command(site, command, ...)
     end,
     update = function(...)
       get(false, true, sites[site], ...)
+    end,
+    run = function(...)
+      run(sites[site], ...)
     end,
     submit = function(...)
       submit(sites[site], ...)
@@ -363,10 +475,10 @@ local function process_site_command(site, command, ...)
   commands["--help"] = commands.help
 
   if not sites[site] then
-    error(errors.UserError(
+    errors.UserError(
       ("Unknown challenge site '%s'"):format(site),
       "Provide a valid challenge site name."
-    ))
+    )
   end
 
   command = (command or ""):lower()
@@ -375,10 +487,10 @@ local function process_site_command(site, command, ...)
     return
   end
 
-  error(errors.UserError(
+  errors.UserError(
     ("Unknown command '%s' for challenge site '%s'"):format(command, site),
     "Provide a valid command for the challenge site."
-  ))
+  )
 end
 
 local function interactive(site)
@@ -415,6 +527,7 @@ local function interactive(site)
 
         -- Check if the first word in the text is one of the commands.
         local first_word = text:match("%S+")
+        local space_after_first = text:match("%S+%s")
         local second_word = text:match("%S+%s+(%S+)")
 
         -- If there is no command yet, return the list of allowed commands.
@@ -430,7 +543,8 @@ local function interactive(site)
         end
 
         -- If there is a second word, we delegate to the site's completion function.
-        if second_word then
+        -- Or, if there is a space after the first word.
+        if second_word or space_after_first then
           if site_obj.completion then
             return site_obj.completion(text)
           else
@@ -500,7 +614,7 @@ local function interactive(site)
     -- well that got complicated, maybe I'll come back and simplify it later.
 
     if quote then
-      error(errors.UserError("Unmatched quote in command."))
+      errors.UserError("Unmatched quote in command.")
     end
 
     --#endregion Process the command into parts
@@ -545,11 +659,14 @@ local function process_top_level_command(args)
           print("Pass:", pass)
         end
       elseif site_type == "token" then
+        --[[
         local ok, token = credential_store.get_token("advent-of-code")
         print("Success:", ok)
         if ok then
           print("Token:", token)
-        end
+        end]]
+
+        sites["advent-of-code"].authenticate()
       end
     end,
     ["cred-store"] = function(subcommand)
