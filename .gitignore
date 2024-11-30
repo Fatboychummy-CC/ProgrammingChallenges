@@ -7,3 +7,5 @@ filesystem.lua
 errors.lua
 credential_store.lua
 names.lua
+logging.lua
+challenge_output.txt
