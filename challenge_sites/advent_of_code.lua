@@ -27,6 +27,12 @@ local FILE_FORMATTER = "challenges/" .. site.name .. "/%d/%d/%d"
 ---@return boolean success Whether the authentication was successful.
 ---@return string? error The error message if the authentication failed.
 function site.authenticate()
+  if site.session then
+    LOG.info("Already authenticated.")
+    return true
+  end
+
+  LOG.debug("Not authenticated. Prompting user for session token.")
   if not credential_store.entries.exists(site.name, "token") then
     print()
     term.setTextColor(colors.orange)
@@ -48,7 +54,6 @@ function site.authenticate()
   end
 
   local ok, session = credential_store.get_token(site.name)
-
 
   if not ok then
     return false, "Authentication failure."

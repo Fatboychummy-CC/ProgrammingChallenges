@@ -4,6 +4,9 @@
 --- additional functions and variables as needed, however, the main bulk MUST
 --- be inside the `run` function.
 --- 
+--- Do note that everything within the `libs` folder is available to you via
+--- `require` calls.
+--- 
 --- The run function takes two arguments: `input` and `output`. The `input`
 --- argument is a mocked file-handle object that you can read from. The `output`
 --- argument is a mocked file-handle object that you can write to. You should

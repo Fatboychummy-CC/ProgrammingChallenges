@@ -56,8 +56,6 @@ function ChallengeSite.get_challenge(empty_challenge, ...) return true end
 ---@param ... string Additional arguments passed to the challenge library (past `challenge site_name submit`).
 ---@return boolean success Whether the submission was successful.
 ---@return string? error The error message if the submission failed.
----@return string? details Detailed information about the error, if applicable.
----@return string? hint A hint to help the user fix the error, if applicable.
 function ChallengeSite.submit(challenge, challenge_answer, ...) return true end
 
 --- This is the final step in the challenge runner. It is called after the
