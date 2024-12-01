@@ -2,7 +2,6 @@ ccryptolib
 file_helper.lua
 1etc
 .credential_store
-challenges
 filesystem.lua
 errors.lua
 credential_store.lua
