@@ -441,7 +441,7 @@ local function display_test_results(test_results)
   end
 
   term.setTextColor(colors.lightBlue)
-  print("Results:")
+  write("Results: ")
   term.setTextColor(colors.white)
   print(("%d passed, %d failed."):format(passed, failed))
 end
@@ -662,6 +662,13 @@ local function submit(site, ...)
     return
   end
 
+  if not site_dir:exists("output.txt") then
+    errors.UserError(
+      "No output file found.",
+      "You must first run the challenge before you can submit it."
+    ) return
+  end
+
   -- Now we can submit the challenge.
   if site.authenticate then
     LOG.debug("-> Requires authentication, authenticating...")
@@ -675,7 +682,7 @@ local function submit(site, ...)
   end
 
   LOG.debug("-> Delegating to site to submit the challenge.")
-  local ok, err = site.submit(challenge, ...)
+  local ok, err = site.submit(challenge, site_dir:file("output.txt"):readAll(), ...)
 
   if not ok then
     errors.ChallengeError(
@@ -684,7 +691,7 @@ local function submit(site, ...)
     ) return
   end
 
-  LOG.info("Challenge submitted.")
+  LOG.info("Challenge complete!")
   if err then
     LOG.info("Message:", err)
   end
@@ -907,7 +914,7 @@ local function interactive(site)
         printError(err)
 
         -- If it's a user error, continue the loop.
-        if err.type ~= "UserError" then
+        if err.type ~= "UserError" and err.type ~= "ChallengeError" then
           break
         end
       else

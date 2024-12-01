@@ -164,6 +164,20 @@ function extra_file_handles.openRead(path, is_data)
     return lines
   end
 
+  --- Reads the entire file, but returns an iterator for the file (split by the given separator).
+  ---@param separator string? The separator to split the file by. Defaults to newline ('\n'), pattern enabled.
+  ---@return fun():string? iterator The iterator for the file.
+  function MockReadHandle:lines(separator)
+    expect(1, separator, "string", "nil")
+    attempt_closed()
+
+    separator = separator or '\n'
+
+    return function()
+      return self:readLine(separator)
+    end
+  end
+
   --- Use a lua pattern match on the file, from the current cursor position.
   ---@param pattern string The pattern to match.
   ---@return string? ... The matches from the pattern.

@@ -203,9 +203,13 @@ function site.submit(challenge, challenge_answer, challenge_year, challenge_day,
   LOG.infof("Submitting challenge %d/%d, part %d...", cy_n, cd_n, cp_n)
   LOG.debugf("Submit URL: %s", submit_url)
   LOG.debugf("Post body: %s", post_body)
+  local keys = {}
+  for k in pairs(headers) do
+    table.insert(keys, k)
+  end
   LOG.debugf(
     "Header keys: %s",
-    table.concat({(function() local t = {} for k in headers do t[#t+1]=k end return t end)()}, ", ") -- jank
+    table.concat(keys, ", ")
   )
   local response, err = http.post(
     submit_url,
@@ -225,9 +229,10 @@ function site.submit(challenge, challenge_answer, challenge_year, challenge_day,
 
   -- Check if the submission was successful.
   local message = response_text:match("<article><p>(.-) If you're stuck.*</p></article>")
+  local correct = response_text:match("That's the right answer!")
 
-  if message then
-    return message:match("That's the right answer!") ~= nil, message
+  if correct then
+    return true, message
   end
 
   local too_recent = response_text:match("<article><p>You gave an answer too recently;.*You have (.-) left to wait.</p></article>")
