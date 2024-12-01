@@ -352,21 +352,19 @@ local function get(internal, update, site, ...)
   return challenge_data
 end
 
---- Run a challenge from a challenge site.
----@param site ChallengeSite The challenge site to run the challenge from.
----@param ... string The arguments passed to the challenge site.
-local function run(site, ...)
-  ---@FIXME I hate how this function looks, maybe we could abstract some things out, but right now it looks like a mess.
-
-
+--- Compile the challenge runner for a challenge site.
+---@param site ChallengeSite The challenge site to compile the challenge runner for.
+---@return fun(...):fun(input: MockReadHandle, output: MockWriteHandle) compiled The compiled challenge runner.
+local function compile_challenge(site, ...)
   local site_dir = get_challenge_dir(site, ...)
-  LOG.debugf("Running challenge from site '%s' at '%s'", site.name, tostring(site_dir))
+
+  local _ = function(input,output)end
 
   if not site_dir:exists() then
     errors.UserError(
       "Challenge does not exist.",
       "You must first get the challenge before you can run it."
-    ) return
+    ) return _
   end
 
   local run_file = site_dir:file("run.lua")
@@ -374,17 +372,263 @@ local function run(site, ...)
     errors.UserError(
       "Challenge runner does not exist.",
       "You must first get the challenge before you can run it."
-    ) return
+    ) return _
   end
 
-  LOG.debugf("-> Compiling challenge runner at '%s'", tostring(run_file))
+  LOG.debugf("Compiling challenge runner at '%s'", tostring(run_file))
   local func, err = load(run_file:readAll(), "=" .. run_file.path, "t", _ENV)
   if not func then
     errors.UserError(
       "Compilation failed: " .. tostring(err),
       "The challenge runner failed to compile. Check the file for errors, then try again."
+    ) return _
+  end
+
+  return func
+end
+
+
+
+--- Display the result of a challenge.
+---@param output_file MockWriteHandle The output file to display the result from.
+local function display_result(output_file)
+  -- Mock the logger a bit...
+  term.blit(
+    "[RESULT] ",
+    "0dddddd00",
+    "fffffffff"
+  )
+  term.setTextColor(colors.lightBlue)
+  print(output_file.buffer)
+  term.setTextColor(colors.white)
+end
+
+
+
+---@class ResultComparison
+---@field expected_output string The expected output.
+---@field actual_output string The actual output.
+
+--- Display test results.
+---@param test_results ResultComparison[] The test results to display.
+local function display_test_results(test_results)
+  local passed = 0
+  local failed = 0
+
+  for i, result in ipairs(test_results) do
+    local passed_str = result.expected_output == result.actual_output and "PASSED" or "FAILED"
+    local color = result.expected_output == result.actual_output and colors.green or colors.red
+
+    term.setTextColor(color)
+    print(("[%d] %s"):format(i, passed_str))
+    term.setTextColor(colors.white)
+
+    if result.expected_output ~= result.actual_output then
+      term.setTextColor(colors.lightBlue)
+      write("Expected: ")
+      term.setTextColor(colors.white)
+      print(result.expected_output)
+
+      term.setTextColor(colors.lightBlue)
+      write("Actual  : ")
+      term.setTextColor(colors.white)
+      print(result.actual_output)
+
+      failed = failed + 1
+    else
+      passed = passed + 1
+    end
+  end
+
+  term.setTextColor(colors.lightBlue)
+  print("Results:")
+  term.setTextColor(colors.white)
+  print(("%d passed, %d failed."):format(passed, failed))
+end
+
+
+
+--- Run the main challenge from a challenge site.
+---@param site ChallengeSite The challenge site to run the challenge from.
+---@param run_func fun(input: MockReadHandle, output: MockWriteHandle) The compiled challenge runner.
+local function run_main(site, run_func, ...)
+  local site_dir = get_challenge_dir(site, ...)
+
+  LOG.debug("-> Loading challenge files")
+  -- Load the input file, and the output files.
+  local input_file, err = efh.openRead(site_dir:file("input.txt"))
+  if not input_file then
+    errors.InternalError(
+      "Failed to open input file:" .. tostring(err),
+      "The input file could not be opened. Check the file exists, then try again."
     ) return
   end
+
+  local output_file, err = efh.openWrite {
+    site_dir:file("output.txt"),
+    filesystem:at("challenge_output.txt")
+  }
+  if not output_file then
+    errors.InternalError(
+      "Failed to open output file(s):" .. tostring(err),
+      "The output file(s) could not be opened. Does your computer have enough space?"
+    ) return
+  end
+
+  LOG.info("Running challenge")
+
+  local start_time = os.epoch("utc")
+  local ok, err = pcall(run_func, input_file, output_file)
+  local time = os.epoch("utc") - start_time
+
+  if not ok then
+    errors.UserError(
+      "Runtime error: " .. tostring(err),
+      "The challenge runner failed to execute. Check the file for errors, then try again."
+    ) return
+  end
+
+  if not input_file:isClosed() then
+    input_file:close()
+  end
+  if not output_file:isClosed() then
+    output_file:close()
+  end
+  LOG.debug("Input and output handles closed.")
+
+  LOG.info("Challenge completed in", time, "ms")
+
+  display_result(output_file)
+end
+
+
+
+--- Run the tests for a challenge from a challenge site.
+---@param site ChallengeSite The challenge site to run the tests from.
+---@param run_func fun(input: MockReadHandle, output: MockWriteHandle) The compiled challenge runner.
+---@param ... string The arguments passed to the challenge site.
+local function run_tests(site, run_func, ...)
+  local site_dir = get_challenge_dir(site, ...)
+
+  LOG.debug("-> Loading challenge files")
+  -- Load all the test files from `inputs` and `outputs`.
+  local test_inputs = site_dir:at("tests/inputs"):list()
+  local test_outputs = site_dir:at("tests/outputs"):list()
+
+  if #test_inputs == 0 then
+    errors.UserError(
+      "No test inputs found.",
+      "You must first get the challenge before you can run the tests."
+    ) return
+  end
+
+  if #test_outputs == 0 then
+    errors.UserError(
+      "No test outputs found.",
+      "You must first get the challenge before you can run the tests."
+    ) return
+  end
+
+  if #test_inputs ~= #test_outputs then
+    errors.UserError(
+      "Mismatched test inputs and outputs.",
+      "The number of test inputs and outputs do not match. Ensure they are the same, then try again."
+    ) return
+  end
+
+  -- Ensure each test input has a matching output. (inputs/n.txt -> inputs/n.txt)
+  for _, input_file in ipairs(test_inputs) do
+    local name = fs.getName(tostring(input_file))
+    local found = false
+
+    for _, output_file in ipairs(test_outputs) do
+      if fs.getName(tostring(output_file)) == name then
+        found = true
+        break
+      end
+    end
+
+    if not found then
+      errors.UserError(
+        ("No matching output file found for test input '%s'"):format(name),
+        "Ensure each test input has a matching output, then try again."
+      ) return
+    end
+  end
+
+  -- Finally, actually run the tests.
+  local results = {}
+
+  for i, input_file in ipairs(test_inputs) do
+    local output_file = test_outputs[i]
+
+    LOG.debugf("-> Running test %d", i)
+    local input_handle, err = efh.openRead(input_file)
+    local expected_output = output_file:readAll()
+    local output_handle = efh.openWrite {
+      site_dir:file("output.txt"),
+      filesystem:at("challenge_output.txt")
+    }
+
+    if not input_handle then
+      errors.InternalError(
+        ("Failed to open test input file %d: %s"):format(i, tostring(err)),
+        "The test input file could not be opened. Check the file exists, then try again."
+      ) return
+    end
+    if not expected_output then
+      errors.InternalError(
+        ("Failed to read test output file %d"):format(i),
+        "The test output file could not be read. Check the file exists, then try again."
+      ) return
+    end
+    if not output_handle then
+      errors.InternalError(
+        ("Failed to open test output file %d: %s"):format(i, tostring(err)),
+        "The test output file could not be opened. Check the file exists, then try again."
+      ) return
+    end
+
+    local ok, err = pcall(run_func, input_handle, output_handle)
+
+    if not input_handle:isClosed() then
+      input_handle:close()
+    end
+
+    if not output_handle:isClosed() then
+      output_handle:close()
+    end
+
+    if not ok then
+      errors.UserError(
+        ("Runtime error in test %d: %s"):format(i, tostring(err)),
+        "The challenge runner failed to execute. Check the file for errors, then try again."
+      ) return
+    end
+
+    table.insert(results, {
+      expected_output = expected_output,
+      actual_output = output_handle.buffer
+    })
+  end
+
+  display_test_results(results)
+end
+
+
+
+--- Run a challenge from a challenge site.
+---@param site ChallengeSite The challenge site to run the challenge from.
+---@param test boolean If true, run the tests instead of the main challenge. This loads and runs all the test inputs and outputs.
+---@param ... string The arguments passed to the challenge site.
+local function run(site, test, ...)
+  ---@FIXME I hate how this function looks, maybe we could abstract some things out, but right now it looks like a mess.
+
+
+  local site_dir = get_challenge_dir(site, ...)
+  LOG.debugf("Running challenge from site '%s' at '%s'", site.name, tostring(site_dir))
+
+  local func = compile_challenge(site, ...)
 
   LOG.debug("-> Init challenge runner")
   local success, result = pcall(func, ...)
@@ -397,58 +641,11 @@ local function run(site, ...)
 
 
   if type(result) == "function" then
-    LOG.debug("-> Loading challenge files")
-    -- Load the input file, and the output files.
-    local input_file, err = efh.openRead(site_dir:file("input.txt"))
-    if not input_file then
-      errors.InternalError(
-        "Failed to open input file:" .. tostring(err),
-        "The input file could not be opened. Check the file exists, then try again."
-      ) return
+    if test then
+      run_tests(site, result, ...)
+    else
+      run_main(site, result, ...)
     end
-
-    local output_file, err = efh.openWrite {
-      site_dir:file("output.txt"),
-      filesystem:at("challenge_output.txt")
-    }
-    if not output_file then
-      errors.InternalError(
-        "Failed to open output file(s):" .. tostring(err),
-        "The output file(s) could not be opened. Does your computer have enough space?"
-      ) return
-    end
-
-    LOG.info("Running challenge")
-
-    local start_time = os.epoch("utc")
-    local ok, err = pcall(result, input_file, output_file)
-    local time = os.epoch("utc") - start_time
-
-    if not ok then
-      errors.UserError(
-        "Runtime error: " .. tostring(err),
-        "The challenge runner failed to execute. Check the file for errors, then try again."
-      ) return
-    end
-
-    if not input_file:isClosed() then
-      input_file:close()
-    end
-    if not output_file:isClosed() then
-      output_file:close()
-    end
-    LOG.debug("Input and output handles closed.")
-
-    LOG.info("Challenge completed in", time, "ms")
-    -- Mock the logger a bit...
-    term.blit(
-      "[RESULT] ",
-      "0dddddd00",
-      "fffffffff"
-    )
-    term.setTextColor(colors.lightBlue)
-    print(output_file.buffer)
-    term.setTextColor(colors.white)
   end
 end
 
@@ -523,7 +720,10 @@ local function process_site_command(site, command, ...)
       get(false, true, sites[site], ...)
     end,
     run = function(...)
-      run(sites[site], ...)
+      run(sites[site], false, ...)
+    end,
+    test = function(...)
+      run(sites[site], true, ...)
     end,
     submit = function(...)
       submit(sites[site], ...)
@@ -591,6 +791,7 @@ local function interactive(site)
         local allowed_commands = {
           "get",
           "run",
+          "test",
           "update",
           "submit",
           "help",
@@ -783,7 +984,7 @@ do
   end
 
   local l2_cred_choices = {"enable", "disable", "list"}
-  local l2_choices = {"help", "get", "update", "submit", "interactive", "cred-store"}
+  local l2_choices = {"help", "get", "run", "test", "update", "submit", "interactive", "cred-store"}
   local l3_choices = {"remove"}
 
   shell.setCompletionFunction(shell.getRunningProgram(), function (shell, index, text, previous)

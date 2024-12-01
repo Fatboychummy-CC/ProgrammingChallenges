@@ -263,6 +263,7 @@ function site.help(previous)
   print(previous, "run <year> <day> <part>")
   print(previous, "update <year> <day> <part>")
   print(previous, "submit <year> <day> <part>")
+  print(previous, "test <year> <day> <part>")
 end
 
 --- The completion function for this site, used for tab completion in the interactive shell.
@@ -314,7 +315,7 @@ function site.completion(text)
     end
   end
 
-  if command == "get" or command == "run" or command == "update" or command == "submit" then
+  if command == "get" or command == "run" or command == "update" or command == "submit" or command == "test" then
     if not space_after_year then
       return completion.choice(_year or "", years)
     end
