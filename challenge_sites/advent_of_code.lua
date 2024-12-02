@@ -229,6 +229,9 @@ function site.submit(challenge, challenge_answer, challenge_year, challenge_day,
 
   -- Check if the submission was successful.
   local message = response_text:match("<article><p>(.-) If you're stuck.*</p></article>")
+  if not message then
+    message = response_text:match("<article><p>(.-)Curiously,</p></article>") -- "Curiously, it's the right answer for someone else"
+  end
   local correct = response_text:match("That's the right answer!")
 
   if correct then
