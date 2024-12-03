@@ -244,6 +244,12 @@ function site.submit(challenge, challenge_answer, challenge_year, challenge_day,
     return false, "Submission too recent. Wait " .. too_recent .. " to submit again."
   end
 
+  local already_submitted = response_text:match("<article><p>You don't seem to be solving the right level.-</p></article>")
+
+  if already_submitted then
+    return false, "Already submitted a correct answer for this challenge."
+  end
+
   errors.InternalError("Failed to parse submission response.", response_text:match("<article>.-</article>"))
   return false -- errors.InternalError throws an error, but the linter doesn't realize it.
 end
