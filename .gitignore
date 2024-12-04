@@ -8,3 +8,8 @@ credential_store.lua
 names.lua
 logging.lua
 challenge_output.txt
+output.txt
+tests
+description.md
+input.txt
+name.txt
