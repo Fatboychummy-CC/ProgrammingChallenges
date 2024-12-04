@@ -69,14 +69,14 @@ function extra_file_handles.openRead(path, is_data)
     end
 
     local start = self.cursor
-    local stop = self.data:find(separator, start)
+    local stop, stop_2 = self.data:find(separator, start)
 
     if not stop then
       self.cursor = self.len + 1
       return self.data:sub(start)
     end
 
-    self.cursor = stop + 1
+    self.cursor = stop_2 + 1
     return self.data:sub(start, stop - 1)
   end
 
