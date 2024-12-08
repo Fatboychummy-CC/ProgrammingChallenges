@@ -122,7 +122,6 @@ function site.get_challenge(empty_challenge, challenge_year, challenge_day, chal
 
   if not got_input then
     -- HTTP request.
-    print(input_url)
     local response, err = http.get(input_url, {["Cookie"] = "session=" .. site.session})
     if not response then
       errors.NetworkError("Failed to get input for challenge.", err)
