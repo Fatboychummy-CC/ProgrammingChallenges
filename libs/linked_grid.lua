@@ -73,10 +73,16 @@ local function grid()
               self:Get(y - 1, x + 1), self:Get(y + 1, x - 1), self:Get(y + 1, x + 1)
 
           -- Iterable table of all 8 directions
-          grid_obj.all_connections = {
-            grid_obj.up, grid_obj.down, grid_obj.left, grid_obj.right,
-            grid_obj.up_left, grid_obj.up_right, grid_obj.down_left, grid_obj.down_right
-          }
+          grid_obj.all_connections = {}
+          -- Add via table.insert, since the connection may not exist if on the edge of the grid.
+          table.insert(grid_obj.all_connections, grid_obj.up)
+          table.insert(grid_obj.all_connections, grid_obj.down)
+          table.insert(grid_obj.all_connections, grid_obj.left)
+          table.insert(grid_obj.all_connections, grid_obj.right)
+          table.insert(grid_obj.all_connections, grid_obj.up_left)
+          table.insert(grid_obj.all_connections, grid_obj.up_right)
+          table.insert(grid_obj.all_connections, grid_obj.down_left)
+          table.insert(grid_obj.all_connections, grid_obj.down_right)
 
           -- Named connections
           grid_obj.named_connections = {
@@ -94,9 +100,12 @@ local function grid()
           }
 
           -- Iterable table of all 4 cardinal directions
-          grid_obj.cardinal_connections = {
-            grid_obj.up, grid_obj.down, grid_obj.left, grid_obj.right
-          }
+          grid_obj.cardinal_connections = {}
+          -- Add via table.insert, since the connection may not exist if on the edge of the grid.
+          table.insert(grid_obj.cardinal_connections, grid_obj.up)
+          table.insert(grid_obj.cardinal_connections, grid_obj.down)
+          table.insert(grid_obj.cardinal_connections, grid_obj.left)
+          table.insert(grid_obj.cardinal_connections, grid_obj.right)
 
           -- Named cardinal connections
           grid_obj.named_cardinal_connections = {
