@@ -57,6 +57,26 @@ local function grid()
       return grid_obj
     end,
 
+    --- Returns an iterator to iterate over every grid object.
+    ---@param self linked_grid The grid.
+    ---@return fun():integer,integer,linked_grid_object iterator The iterator function. Return order is `y`, `x`, `grid_object`.
+    Iterate = function(self)
+      local y = self.nh
+      local x = self.nw - 1
+
+      return function()
+        x = x + 1
+        if x > self.w then
+          x = self.nw
+          y = y + 1
+        end
+
+        if y > self.h then return end ---@diagnostic disable-line: missing-return-value
+
+        return y, x, self.grid[y][x]
+      end
+    end,
+
     --- Generate the grid's links. This needs to be done after the grid is generated, otherwise links will be missing.
     ---@param self linked_grid The grid.
     Link = function(self)
