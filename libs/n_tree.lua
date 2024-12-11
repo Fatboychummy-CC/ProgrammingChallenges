@@ -35,11 +35,15 @@ function tree.new(value)
   ---@class nTree
   ---@field parent nTree? The parent of the node.
   ---@field children nTree[] The children of the node.
+  ---@field value any The value of the node.
+  ---@field n_children integer The number of children.
+  ---@field _is_tree true
   local obj = {
     _is_tree = true,
     parent = nil,
     children = {},
-    value = value
+    value = value,
+    n_children = 0
   }
 
   --- Get the root node of the tree.
@@ -60,13 +64,15 @@ function tree.new(value)
   function obj.new_child(value)
     if type(value) == "table" and value._is_tree then
       value.parent = obj
-      table.insert(obj.children, value)
+      obj.n_children = obj.n_children + 1
+      obj.children[obj.n_children] = value
       return value
     end
 
     local node = tree.new(value)
     node.parent = obj
-    table.insert(obj.children, node)
+    obj.n_children = obj.n_children + 1
+    obj.children[obj.n_children] = node
     return node
   end
 
@@ -76,13 +82,14 @@ function tree.new(value)
     local leaves = {}
 
     local function get_leaves(node)
-      if #node.children == 0 then
+      if node.n_children == 0 then
         table.insert(leaves, node)
         return
       end
 
-      for _, child in ipairs(node.children) do
-        get_leaves(child)
+      local children = node.children
+      for i = 1, node.n_children do
+        get_leaves(children[i])
       end
     end
 
@@ -132,8 +139,9 @@ function tree.new(value)
         layers = current_layer
       end
 
-      for _, child in ipairs(node.children) do
-        count_layers(child, current_layer + 1)
+      local children = node.children
+      for i = 1, node.n_children do
+        count_layers(children[i], current_layer + 1)
       end
     end
 
