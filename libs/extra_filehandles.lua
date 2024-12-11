@@ -363,6 +363,17 @@ function extra_file_handles.openWrite(paths)
     self.buffer = self.buffer .. data
   end
 
+  --- Write an integer to the handle. This uses the float format string, but
+  --- with `.0f` in order to write a large integer (as lua does not like to
+  --- output large integers with `%d`)
+  ---@param data integer The integer to write to the handle.
+  function MockWriteHandle:writeInt(data)
+    expect(1, data, "number")
+    attempt_closed()
+
+    self:write(("%.0f"):format(data))
+  end
+
   --- Write a formatted string to the handle.
   ---@param format string The format string.
   ---@param ... any The arguments to the format string.
